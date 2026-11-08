@@ -1,0 +1,147 @@
+# 项目状态快照
+
+> 写于 2026-11-09。这是一份**可交接的状态快照**：接手的人（或下一次会话）从这份文档就能继续，不必重走探索。
+> 需求见 [DSHBot-需求规格-v1.1.md](DSHBot-需求规格-v1.1.md)，任务清单见 [TASKS.md](TASKS.md)。
+
+---
+
+## 1. 现在能跑什么
+
+DSH 桌面端侧栏多了「🏠 房间」入口，点开是三栏页面：
+
+- **建房**：名称 + 目标 + 验收标准（一行一条），落盘到 `~/.dsh/dshbot/rooms.json`；
+- **列表与详情**：状态徽标、目标、验收条目；
+- **数据持久化**：重启 DSH 不丢。
+
+还不能：让 Bot 说话、看 Bot 干活、审批、交付。那是 M0-3 之后的事。
+
+## 2. 进度
+
+| 项 | 状态 |
+|---|---|
+| 需求规格 v1.1 | ✅ 决策已锁定 |
+| T2 插件页面可行性 | ✅ 结论：官方支持 |
+| S0-1 第三方包全链路 | ✅ 冒烟通过 |
+| S0-2 脚手架与构建 | ✅ `pnpm build` / `typecheck` 全绿 |
+| S0-3 插件加载闭环 | ✅ 桌面端可见 |
+| S0-4 数据模型 | ✅ 类型完成 |
+| S0-5 存储层 | ✅ JSON + 原子写 |
+| X-1 执行模型 | ✅ 结论：子进程不可行，改进程内 |
+| M0-1 建房 | ✅ |
+| M0-2 三栏布局 | ✅ |
+| **M0-3 单 Bot 执行** | 🟡 **卡在 agent preset** |
+| M0-4 消息流渲染 | ⬜ 事件形状已摸清，可直接做 |
+| M0-5 ~ M3 | ⬜ |
+
+## 3. 代码地图
+
+```
+packages/
+  core/            零 DSH 依赖：Room/Bot/Seat/Message/Assignment/Artifact 类型 + id 工具
+  plugin/
+    src/index.ts        Host 插件入口：注入 webServer/agents/sessions，挂路由
+    src/host/api.ts     路由：/dshbot/api/{health,rooms,_probe}
+    src/host/store.ts   房间存储（临时文件 + rename）
+    src/host/agent.ts   ⚠ 进程内跑 agent 回合（M0-3 卡点在这）
+    src/client/index.ts 注册 main 面板 + 侧栏入口
+    src/client/page.tsx 房间页（三栏）
+    src/client/api.ts   浏览器侧 fetch（文档相对路径）
+  cli/             dsh-bot 骨架命令
+scripts/install.mjs  构建 → 类型检查 → link: 进 profile → 补丁层托管段
+spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档）
+```
+
+## 4. 环境事实
+
+| 项 | 值 |
+|---|---|
+| DSH 版本 | 0.2.1-rc.5 |
+| DSH home | `C:\Users\14153\.dsh` |
+| 桌面端 profile | `desktop`（**被 Electron 独占**，CLI 不能 dump-config） |
+| 开发 profile | `dshbot-dev`（从 web 复制，端口 54873） |
+| 安装方式 | `link:`（软链），不是 `file:`（拷贝） |
+| 补丁层 | `profiles/<name>/cordis.patch.yml` 里的 `# >>> dshbot:managed` 段 |
+| 数据 | `~/.dsh/dshbot/rooms.json` |
+| 权限 | 非管理员；Node/pnpm/Git 装在 `%LOCALAPPDATA%\Programs` |
+| 网络 | GitHub 不通，用 npmmirror；npm registry 正常 |
+| PowerShell | `CurrentUser` 执行策略 = RemoteSigned |
+
+## 5. 已验证的技术结论（别重走）
+
+1. **插件形态**：第三方包注册 `main` 全屏页（`ctx.slots.register({ name:'main', key })`）+ `sidebar.panellist` 入口；客户端 bundle 必须包成 `window.__ModuleLoader__.load({ id, factory })`。详见 [T2-验证报告.md](T2-验证报告.md)。
+2. **前后端通信**：`ctx.webServer.register({ kind:'prefix', path, handler })` + 普通 `node:http`；浏览器用**文档相对 URL**（`dshbot/api/...`，无前导斜杠），Electron 的 `dsh://app/` 协议会转发给本地 webserver。
+3. **构建**：esbuild 出 CJS，banner/footer 包成 loader 形状；`react` 等 11 个模块 external，绝不能打进第二份 React。
+4. **Run 不能用子进程**：`dsh headless` 拿不到账号 token——`resolveToken` 要求 `destination.origin === inferenceOrigin`，裸 CLI 对不上。详见 [spike/x1-findings.md](spike/x1-findings.md)。
+5. **session 事件形状**：`{ log: [{ type, seq, time, data }] }`，含 `turn/start`、`step/start`、`agent/inbox/spliced`、`turn/end`。这就是 M0-4 消息流的数据源。
+6. **agent 句柄**：`ctx.agents.create()` 返回 `{ agent, dispose }`，真句柄在 `agent` 上，有 `followup()`。
+
+## 6. 当前卡点（M0-3）
+
+**症状**：起 agent、投消息都成功，但回合 32ms 就结束：
+
+```
+prompt variable "{{model}}" has no value for this assembly (section "deployment:persona-prefix")
+```
+
+**原因**：`agents.create({ sessionId, agentOptions: { cwd } })` 没带 Agent preset 与模型选择，系统提示词模板填不上 `{{model}}`。
+
+**两条路**：
+
+| | 做法 | 备注 |
+|---|---|---|
+| **A（推荐）** | 找到谁给 `agents` 挂了 `createSession`，注入那个服务 | UI 已验证的路径；`ctx.agents.createSession` 在插件里不存在，全局搜定义 0 命中 |
+| B | 自己拼 `agentOptions`：`preset` + 从 `ctx.agentDefaultModel` 读 `{ provider, model }` | 字段名靠猜，可能要试几轮 |
+
+线索：`dsh-api-session-controller` 里 `SessionCommandController.create()` 调用 `this.agents.createSession({ sessionId, cwd, agentPreset, reusable })`——说明 `this.agents` 与插件拿到的 `ctx.agents` 不是同一个扩展层。
+
+## 7. 恢复步骤
+
+```powershell
+# 1. 依赖（只需一次）
+cd D:\Desktop\DSBOT; pnpm install
+
+# 2. 构建 + 装进桌面端 profile
+pnpm install:profile
+
+# 3. 重启 DSH 生效
+```
+
+跑开发实例（不影响桌面端）：
+
+```powershell
+dsh plugin --profile dshbot-dev add "link:D:/Desktop/DSBOT/packages/plugin"   # 首次
+dsh --profile dshbot-dev --port 54873 --no-open                               # 打印带 token 的地址
+```
+
+## 8. 下一步三件事
+
+1. 解决 M0-3 的 preset 问题（路线 A）；
+2. 把 agent 事件映射成房间消息（M0-4），顺手删掉 `_probe` 探针；
+3. 接 `@提及` 触发（M0-5）。
+
+## 9. 已知的坑
+
+| 坑 | 表现 | 处理 |
+|---|---|---|
+| JSON 带 BOM | `dsh plugin add` 报 `Unexpected token '﻿'` | 写 JSON 一律无 BOM UTF-8 |
+| 补丁层裸加条目 | `patch: entry "x" not found` | 必须写 `- insert: [...]` |
+| `file:` 依赖 | 重建后 profile 还是旧代码 | 用 `link:` |
+| 重复 id | 补丁层出现两个同名条目，Loader 报错 | 脚本已加防护，手写时注意 |
+| `desktop` profile | CLI 报 `managed exclusively` | 正常，用 `dshbot-dev` 做组合校验 |
+| 旧 PowerShell 窗口 | `dsh : 无法将…识别为…` | 重载 `$env:Path` 或开新窗口 |
+| 根包 `type: module` | `.js` 脚本里的 `require` 报错 | 改用 `.cjs` |
+| 中文乱码 | PowerShell 控制台显示乱码 | 只是显示问题，文件本身是 UTF-8，用 `read` 确认 |
+| 端口残留 | 重启报占用 | 先 `Stop-Process` 掉占用 54873 的进程 |
+
+## 10. 文档索引
+
+| 文件 | 内容 |
+|---|---|
+| [DSHBot-需求规格-v1.1.md](DSHBot-需求规格-v1.1.md) | 需求基线（房间模型、工位、审批、里程碑） |
+| [TASKS.md](TASKS.md) | 任务清单与状态 |
+| [T2-验证报告.md](T2-验证报告.md) | 插件页面注册 API 取证 |
+| [INSTALL.md](INSTALL.md) | 安装与排错 |
+| [ENVIRONMENT.md](ENVIRONMENT.md) | 开发环境清单 |
+| [spike/x1-findings.md](spike/x1-findings.md) | 为什么不能用子进程 |
+| [spike/m0-3-notes.md](spike/m0-3-notes.md) | M0-3 进展与卡点 |
+| [spike/README.md](spike/README.md) | S0-1 冒烟记录与 CDP 取证工具 |
