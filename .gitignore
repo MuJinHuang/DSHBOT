@@ -2,9 +2,9 @@
 node_modules/
 .pnpm-store/
 
-# 构建产物
-dist/
-lib/
+# 构建产物（只忽略将来正式包的产物，spike 手写产物要进版本库）
+packages/*/dist/
+packages/*/lib/
 *.tsbuildinfo
 
 # 运行期数据

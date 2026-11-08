@@ -1,0 +1,25 @@
+{
+  "name": "@dshbot/hello",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "S0-1 冒烟插件：验证第三方包能注册 main 页面与侧栏入口",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  }
+}
