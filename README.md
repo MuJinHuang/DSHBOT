@@ -32,9 +32,16 @@ spike/      S0-1 冒烟验证（手写插件 + CDP 取证）
 pnpm install
 pnpm build        # 产出 packages/plugin/lib/{index,client}.js 与 cli/bin
 pnpm typecheck
+
+# 一条命令装进 DSH（构建 + 类型检查 + 链接 + 补丁层，幂等）
+pnpm install:profile
+# 或指定别的 profile
+$env:DSHBOT_PROFILE = 'dshbot-dev'; pnpm install:profile
 ```
 
-安装到 DSH 见 [INSTALL.md](INSTALL.md)。
+装完**重启 DSH** 才生效——Loader 条目只在启动时组合。
+
+安装细节见 [INSTALL.md](INSTALL.md)。
 
 ## 关键约束
 
