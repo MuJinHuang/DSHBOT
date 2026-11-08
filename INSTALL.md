@@ -76,6 +76,8 @@ dsh plugin --profile desktop remove @dshbot/hello
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
+| `dsh : 无法将"dsh"项识别为…` | 当前窗口没重载 PATH（已开着的终端不会读新变量） | `$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')`，或开新窗口 |
+| `error: profile "desktop" is managed exclusively by the Electron application` | `desktop` 被桌面应用独占，CLI 不能组合它的配置 | 正常现象，不影响 `plugin add`；要校验 patch 就复制到 `dshbot-dev` 上跑 `--dump-config` |
 | `patch: entry "x" not found` | 直接写了条目没包 `insert:` | 改成 `- insert: [...]` |
 | `Unexpected token '﻿'` | JSON 文件带 BOM | 存成无 BOM UTF-8 |
 | 警告 `declares no dsh.bundle` | 包没声明 bundle 层 | 正常，手工做第 2 步即可 |
