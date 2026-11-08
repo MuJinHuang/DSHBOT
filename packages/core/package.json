@@ -1,0 +1,24 @@
+{
+  "name": "@dshbot/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSHBot 的编排内核：与 DSH 无关的领域模型与状态机",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

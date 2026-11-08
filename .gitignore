@@ -5,6 +5,7 @@ node_modules/
 # 构建产物（只忽略将来正式包的产物，spike 手写产物要进版本库）
 packages/*/dist/
 packages/*/lib/
+packages/*/bin/
 *.tsbuildinfo
 
 # 运行期数据

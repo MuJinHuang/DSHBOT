@@ -1,0 +1,22 @@
+{
+  "name": "@dshbot/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSHBot 命令行：建房、说话、看状态",
+  "bin": {
+    "dsh-bot": "./bin/dsh-bot.js"
+  },
+  "files": ["bin"],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@dshbot/core": "workspace:*",
+    "@types/node": "^24.0.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

@@ -28,7 +28,7 @@ dsh plugin --profile dshbot-dev add "file:D:/Desktop/DSBOT/spike/hello"
 dsh --profile dshbot-dev --port 54873 --no-open
 
 # 5. 取证
-node spike/cdp-shot.js "http://127.0.0.1:54873/?token=<启动时打印的 token>" spike/hello-screenshot.png
+node spike/cdp-shot.cjs "http://127.0.0.1:54873/?token=<启动时打印的 token>" spike/hello-screenshot.png
 ```
 
 `cordis.patch.yml` 的正确写法是 **`insert` 列表**，不是裸条目：
@@ -58,7 +58,7 @@ node spike/cdp-shot.js "http://127.0.0.1:54873/?token=<启动时打印的 token>
 
 ## 附带的工具经验
 
-- `msedge --headless=new --screenshot` 会挂住不退出（25 个进程僵在那里）。改用 CDP 驱动就稳定了，`spike/cdp-shot.js` 可复用。
+- `msedge --headless=new --screenshot` 会挂住不退出（25 个进程僵在那里）。改用 CDP 驱动就稳定了，`spike/cdp-shot.cjs` 可复用。
 - CDP 还能抓 `Runtime.consoleAPICalled`，等于免费拿到前端日志，比截图更适合断言。
 
 ## 对正式插件的含义

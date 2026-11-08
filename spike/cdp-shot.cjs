@@ -131,10 +131,11 @@ async function main() {
   console.log('probe1:', probe.result?.result?.value)
 
   // 自动切页可能被 SPA 的 URL 规范化抹掉，退而求其次：直接点侧栏里那个图标
+  const icon = process.argv[4] || '\\u{1F6D6}'
   const clicked = await send('Runtime.evaluate', {
     expression: `(() => {
       const leaf = [...document.querySelectorAll('*')].find(
-        (e) => e.childElementCount === 0 && (e.textContent || '').trim() === '\\u{1F6D6}'
+        (e) => e.childElementCount === 0 && (e.textContent || '').trim() === '${icon}'
       )
       if (!leaf) return 'icon not found'
       const btn = leaf.closest('button') || leaf.parentElement

@@ -24,8 +24,8 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 | S0-0 | 开发环境（Git / Node / pnpm） | `git`、`node`、`pnpm` 可用，已完成冒烟 | — | — | ✅ |
 | S0-0b | T2 插件页面可行性验证 | 拿到 `main` slot 注册 API 与共享模块表 | — | — | ✅ |
 | S0-1 | **hello 插件冒烟**：独立 profile + 随机端口，注册一个 hello 页和侧栏入口 | 浏览器里能点开 hello 页并看到内容，截图存档 | — | 0.5d | ✅ 见 [spike/README.md](spike/README.md) |
-| S0-2 | **仓库脚手架**：pnpm workspace，`packages/core` / `cli` / `plugin`，构建配置（externals 对齐共享模块表） | `pnpm build` 产出 `lib/client.js` 与 `lib/index.js`，`pnpm typecheck` 通过 | S0-1 | 1d | ⬜ |
-| S0-3 | **插件加载闭环**：把本地包 link 进 profile，`dsh plugin add` | 侧栏出现「房间」入口，点击进入空页面 | S0-2 | 0.5d | ⬜ |
+| S0-2 | **仓库脚手架**：pnpm workspace，`packages/core` / `cli` / `plugin`，构建配置（externals 对齐共享模块表） | `pnpm build` 产出 `lib/client.js` 与 `lib/index.js`，`pnpm typecheck` 通过 | S0-1 | 1d | ✅ |
+| S0-3 | **插件加载闭环**：把本地包 link 进 profile，`dsh plugin add` | 侧栏出现「房间」入口，点击进入空页面 | S0-2 | 0.5d | ✅ 见 [spike/rooms-screenshot.png](spike/rooms-screenshot.png) |
 | S0-4 | 数据模型：Room / Bot / Message / Assignment 的 TS 类型 + JSON Schema | 类型可被 core、plugin、cli 三方共用，schema 有校验用例 | S0-2 | 0.5d | ⬜ |
 | S0-5 | 存储层：JSON 文件 + 原子写，房间与消息的读写 | 重启 DSH 后房间与消息不丢 | S0-4 | 0.5d | ⬜ |
 
