@@ -10,6 +10,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { newId, nowIso } from '@dshbot/core'
 import type { Room } from '@dshbot/core'
+import { runOnce } from './agent.js'
+import type { AgentContext } from './agent.js'
 import { loadRooms, saveRooms } from './store.js'
 
 /** 前缀，必须与注册时一致。 */
@@ -76,41 +78,59 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
   }
 }
 
-/** 路由分发。 */
-export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? '/', 'http://dshbot.local')
-  const path = url.pathname
+/**
+ * 造一个绑定 Host 上下文的处理器。
+ *
+ * @param ctx - 用来起 agent 的上下文
+ */
+export function createHandler(ctx: AgentContext) {
+  return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://dshbot.local')
+    const path = url.pathname
 
-  try {
-    if (path === `${API_PREFIX}/health`) {
-      send(res, 200, { ok: true })
-      return
-    }
-
-    if (path === `${API_PREFIX}/rooms`) {
-      if (req.method === 'GET') {
-        send(res, 200, { rooms: loadRooms() })
+    try {
+      if (path === `${API_PREFIX}/health`) {
+        send(res, 200, { ok: true })
         return
       }
-      if (req.method === 'POST') {
-        const input = (await readJson(req)) as Record<string, unknown>
-        const room = buildRoom(input)
-        if ('error' in room) {
-          send(res, 400, { error: room.error })
+
+      // 探针：验证「起 agent → 投消息 → 拿回复」这条链路
+      if (path === `${API_PREFIX}/_probe` && req.method === 'POST') {
+        const input = (await readJson(req)) as { prompt?: unknown }
+        if (!isNonEmptyString(input.prompt)) {
+          send(res, 400, { error: 'prompt 不能为空' })
           return
         }
-        const rooms = loadRooms()
-        rooms.unshift(room)
-        saveRooms(rooms)
-        send(res, 201, { room })
+        const outcome = await runOnce(ctx, input.prompt, process.cwd())
+        send(res, 200, outcome)
         return
       }
-      send(res, 405, { error: 'method not allowed' })
-      return
-    }
 
-    send(res, 404, { error: 'not found' })
-  } catch (error) {
-    send(res, 500, { error: error instanceof Error ? error.message : '未知错误' })
+      if (path === `${API_PREFIX}/rooms`) {
+        if (req.method === 'GET') {
+          send(res, 200, { rooms: loadRooms() })
+          return
+        }
+        if (req.method === 'POST') {
+          const input = (await readJson(req)) as Record<string, unknown>
+          const room = buildRoom(input)
+          if ('error' in room) {
+            send(res, 400, { error: room.error })
+            return
+          }
+          const rooms = loadRooms()
+          rooms.unshift(room)
+          saveRooms(rooms)
+          send(res, 201, { room })
+          return
+        }
+        send(res, 405, { error: 'method not allowed' })
+        return
+      }
+
+      send(res, 404, { error: 'not found' })
+    } catch (error) {
+      send(res, 500, { error: error instanceof Error ? error.message : '未知错误' })
+    }
   }
 }

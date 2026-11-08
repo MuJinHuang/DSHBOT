@@ -1,0 +1,238 @@
+/**
+ * 进程内跑一个一次性 agent 回合。
+ *
+ * 这是 M0-3 的底座：用宿主的 Agent 服务起一个会话，投递一条用户消息，
+ * 等它跑完，再把助手输出取回来。
+ *
+ * 注意：**不 import 任何 `@deepseek-ai/*` 运行时包**。第三方插件装在 profile 的
+ * node_modules 里，解析不到 app.asar 里的宿主内部包。用户消息的形状直接手搓：
+ * 宿主源码里 `createUserMessage` 就是 `{...input, id, role: 'user'}`。
+ *
+ * 句柄形状按运行时实测调整过：`agents.create()` 返回的对象不保证带 `ctx`，
+ * 所以订阅与轮询都做了防御。
+ */
+import { randomUUID } from 'node:crypto'
+import { newId } from '@dshbot/core'
+
+/** 跑一次的结果。 */
+export interface RunOutcome {
+  sessionId: string
+  text: string
+  status: string
+  /** 诊断用：事件类型统计。 */
+  eventTypes: Record<string, number>
+  /** 诊断用：句柄暴露了哪些键。 */
+  handleKeys: string[]
+  /** 诊断用：状态序列。 */
+  statuses: string[]
+  /** 诊断用：实时捕获的事件类型。 */
+  capturedTypes: string[]
+  /** 诊断用：第一条原始事件。 */
+  sampleEvent: string
+  ms: number
+}
+
+interface AgentHandle {
+  id: string
+  followup(message: unknown): void
+  ctx?: { on?(event: string, listener: (payload: unknown) => void): () => void }
+  on?(event: string, listener: (payload: unknown) => void): () => void
+  status?: unknown
+}
+
+interface SessionLike {
+  events?: unknown[]
+}
+
+/** Host 上下文里本项目依赖的部分。 */
+export interface AgentContext {
+  agents: {
+    /** UI 同款建房入口，自动带 preset 与默认模型；可能不存在。 */
+    createSession?(options: {
+      sessionId: string
+      cwd: string
+      agentPreset?: string
+    }): Promise<{ agent?: AgentHandle; agentPreset?: string }>
+    /** 底层入口，必须自己给全 agentOptions。 */
+    create(options: unknown): Promise<{ agent?: AgentHandle; dispose?: () => void }>
+    get(id: string): AgentHandle | undefined
+  }
+  sessions?: { get(id: string): SessionLike | undefined }
+}
+
+/** 构造一条用户消息，形状对齐宿主的 createUserMessage。 */
+function userMessage(text: string): unknown {
+  return {
+    id: randomUUID(),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: 'user-rpc'
+  }
+}
+
+/** 从任意形状的事件里尽量抠出助手文本。 */
+function extractText(events: unknown[]): string {
+  const parts: string[] = []
+  for (const raw of events) {
+    if (raw === null || typeof raw !== 'object') continue
+    const event = raw as Record<string, unknown>
+    const data = (event.data ?? {}) as Record<string, unknown>
+    const message = (data.message ?? event.message ?? {}) as Record<string, unknown>
+    const content = (message.content ?? data.content ?? event.content) as unknown
+    if (!Array.isArray(content)) continue
+    const role = String(message.role ?? event.role ?? '')
+    if (role !== '' && role !== 'assistant') continue
+    for (const part of content) {
+      const p = part as Record<string, unknown>
+      if (p.type === 'text' && typeof p.text === 'string') parts.push(p.text)
+    }
+  }
+  return parts.join('\n').trim()
+}
+
+/**
+ * 起一个 agent，投一条消息，等它回到 idle。
+ *
+ * @param ctx - Host 上下文
+ * @param prompt - 用户输入
+ * @param cwd - 工作目录
+ */
+export async function runOnce(
+  ctx: AgentContext,
+  prompt: string,
+  cwd: string
+): Promise<RunOutcome> {
+  const started = Date.now()
+  const sessionId = newId('sess')
+
+  // 首选 UI 同款入口：createSession 会带上 Agent preset 与默认模型。
+  // 它由别的插件挂到 registry 上，不是每个组合都有，所以要回退。
+  // 只用 agents.create() 会缺 preset，系统提示词里的 {{model}} 填不上，
+  // 回合会以 "prompt variable ... has no value" 秒失败。
+  const created =
+    typeof ctx.agents.createSession === 'function'
+      ? await ctx.agents.createSession({ sessionId, cwd })
+      : await ctx.agents.create({ sessionId, agentOptions: { cwd } })
+
+  // 返回值是 { agent, agentPreset }，真正的句柄在 agent 上
+  const agent = (created.agent ?? created) as AgentHandle
+
+  // 句柄形状随宿主版本变，先探清楚再调用，免得报一句没用的 "not a function"
+  const ownKeys = Object.keys(agent)
+  const protoKeys =
+    typeof agent === 'object' && agent !== null
+      ? Object.getOwnPropertyNames(Object.getPrototypeOf(agent))
+      : []
+  if (typeof agent.followup !== 'function') {
+    throw new Error(
+      `agent handle 没有 followup；own=[${ownKeys.join(',')}] proto=[${protoKeys.join(',')}]`
+    )
+  }
+
+  const statuses: string[] = []
+  const captured: unknown[] = []
+  let sawBusy = false
+  let resolveIdle: (() => void) | undefined
+  const idle = new Promise<void>((resolve) => {
+    resolveIdle = resolve
+  })
+
+  // 句柄可能把 on 放在 ctx 上，也可能直接放自己身上
+  let off: (() => void) | undefined
+  const emitter = typeof agent.ctx?.on === 'function' ? agent.ctx : agent
+  if (typeof emitter.on === 'function') {
+    try {
+      emitter.on('session/event', (event) => {
+        captured.push(event)
+      })
+    } catch {
+      /* 事件名不对就算了，诊断用 */
+    }
+    try {
+      off = emitter.on('agent/status', (payload) => {
+        const status = String((payload as { status?: unknown })?.status ?? '?')
+        statuses.push(status)
+        // 创建时就可能是 idle，必须等到「忙过再闲」才算这一回合结束
+        if (status !== 'idle') sawBusy = true
+        else if (sawBusy) resolveIdle?.()
+      }) as () => void
+    } catch {
+      off = undefined
+    }
+  }
+
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 60_000))
+
+  agent.followup(userMessage(prompt) as never)
+
+  // 订阅没成功就轮询状态，别干等
+  if (off === undefined) {
+    void (async () => {
+      for (let i = 0; i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 200))
+        const status = String(agent.status ?? '')
+        if (status === '') continue
+        if (statuses.at(-1) !== status) statuses.push(status)
+        if (status !== 'idle') sawBusy = true
+        else if (sawBusy) {
+          resolveIdle?.()
+          return
+        }
+      }
+    })()
+  }
+
+  await Promise.race([idle, timeout])
+  off?.()
+
+  const liveSession = (agent as unknown as { session?: SessionLike & { events?: unknown } }).session
+  const readEvents = (s: unknown): unknown[] => {
+    if (s === null || typeof s !== 'object') return []
+    const value = (s as { events?: unknown }).events
+    if (Array.isArray(value)) return value
+    if (typeof value === 'function') {
+      try {
+        const result = (value as () => unknown).call(s)
+        return Array.isArray(result) ? result : []
+      } catch {
+        return []
+      }
+    }
+    return []
+  }
+  // 事件以 { log: [...] } 的形式推过来，先摊平
+  const flattened: unknown[] = []
+  for (const item of captured) {
+    const log = (item as { log?: unknown })?.log
+    if (Array.isArray(log)) flattened.push(...log)
+    else flattened.push(item)
+  }
+
+  const session = ctx.sessions?.get(sessionId)
+  const fromSession = readEvents(session)
+  const events = flattened.length > 0 ? flattened : fromSession
+
+  const eventTypes: Record<string, number> = {}
+  for (const raw of events) {
+    const type = String((raw as { type?: unknown })?.type ?? 'unknown')
+    eventTypes[type] = (eventTypes[type] ?? 0) + 1
+  }
+
+  return {
+    sessionId,
+    text: extractText(events),
+    status: statuses.at(-1) ?? 'unknown',
+    eventTypes,
+    handleKeys: Object.keys(agent),
+    statuses,
+    capturedTypes: Object.keys(eventTypes),
+    sampleEvent: (() => {
+      try {
+        return JSON.stringify(events.slice(-2)).slice(0, 1200)
+      } catch {
+        return 'unserializable'
+      }
+    })(),
+    ms: Date.now() - started
+  }
+}
