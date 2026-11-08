@@ -17,11 +17,15 @@ DSHBot 是一个 DSH 插件包。安装 = **装进某个 profile + 在补丁层�
 
 ## 1. 装包
 
-### A. 本地目录（开发期，改代码即时生效）
+### A. 本地目录（开发期）
 
 ```powershell
-dsh plugin --profile desktop add "file:D:/Desktop/DSBOT/spike/hello"
+dsh plugin --profile desktop add "link:D:/Desktop/DSBOT/packages/plugin"
 ```
+
+**必须用 `link:`，不要用 `file:`。** `file:` 在 pnpm 里是拷贝（硬链接），重建产物后 profile 里还是旧代码；`link:` 是真软链，构建完重启就生效。
+
+`scripts/install.mjs` 用的就是 `link:`，并且会自动把旧的 `file:` 依赖换掉。
 
 ### B. 从 npm（发布后）
 

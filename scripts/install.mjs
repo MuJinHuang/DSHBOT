@@ -64,17 +64,20 @@ if (!existsSync(profileDir)) {
 }
 
 // ---- 3. 链接进 profile ----
+// 用 link: 而不是 file:。file: 在 pnpm 里是拷贝（硬链接），构建后 profile 里还是旧代码；
+// link: 是真软链，重建即生效。
 step(`链接到 profile: ${profile}`)
 const manifestPath = join(profileDir, 'package.json')
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
 manifest.dependencies ??= {}
 
-if (manifest.dependencies[PACKAGE_NAME]) {
-  console.log(`  ${PACKAGE_NAME} 已在依赖里，跳过`)
+const currentSpec = manifest.dependencies[PACKAGE_NAME]
+if (typeof currentSpec === 'string' && currentSpec.startsWith('link:')) {
+  console.log(`  ${PACKAGE_NAME} 已是 link: 依赖，跳过`)
 } else {
   const dsh = findDshCli()
   const spec = packageDir.replaceAll('\\', '/')
-  sh(`"${dsh}" plugin --profile ${profile} add "file:${spec}"`)
+  sh(`"${dsh}" plugin --profile ${profile} add "link:${spec}"`)
 }
 
 // ---- 4. 补丁层 ----
@@ -84,6 +87,10 @@ const original = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
 
 if (original.includes(MARK_START)) {
   console.log('  已存在 dshbot 托管段，跳过')
+} else if (new RegExp(`^\\s*-\\s*id:\\s*${ENTRY_ID}\\s*$`, 'm').test(original)) {
+  // 已经有人手工插过同名条目。再写一段会出现重复 id，Loader 会报错。
+  console.log(`  ⚠ 补丁层里已有裸的 id: ${ENTRY_ID}，未写入托管段`)
+  console.log('    请手工删掉那段，或把它的 id 改成别的，再重跑本脚本')
 } else {
   if (original.length > 0) {
     const backup = `${patchPath}.bak-${Date.now()}`

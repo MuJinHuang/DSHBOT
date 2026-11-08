@@ -26,8 +26,8 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 | S0-1 | **hello 插件冒烟**：独立 profile + 随机端口，注册一个 hello 页和侧栏入口 | 浏览器里能点开 hello 页并看到内容，截图存档 | — | 0.5d | ✅ 见 [spike/README.md](spike/README.md) |
 | S0-2 | **仓库脚手架**：pnpm workspace，`packages/core` / `cli` / `plugin`，构建配置（externals 对齐共享模块表） | `pnpm build` 产出 `lib/client.js` 与 `lib/index.js`，`pnpm typecheck` 通过 | S0-1 | 1d | ✅ |
 | S0-3 | **插件加载闭环**：把本地包 link 进 profile，`dsh plugin add` | 侧栏出现「房间」入口，点击进入空页面 | S0-2 | 0.5d | ✅ 见 [spike/rooms-screenshot.png](spike/rooms-screenshot.png) |
-| S0-4 | 数据模型：Room / Bot / Message / Assignment 的 TS 类型 + JSON Schema | 类型可被 core、plugin、cli 三方共用，schema 有校验用例 | S0-2 | 0.5d | ⬜ |
-| S0-5 | 存储层：JSON 文件 + 原子写，房间与消息的读写 | 重启 DSH 后房间与消息不丢 | S0-4 | 0.5d | ⬜ |
+| S0-4 | 数据模型：Room / Bot / Message / Assignment 的 TS 类型 + JSON Schema | 类型可被 core、plugin、cli 三方共用，schema 有校验用例 | S0-2 | 0.5d | ✅ 类型完成；校验在 API 层实现，未出独立 JSON Schema |
+| S0-5 | 存储层：JSON 文件 + 原子写，房间与消息的读写 | 重启 DSH 后房间与消息不丢 | S0-4 | 0.5d | ✅ `~/.dsh/dshbot/rooms.json`，写临时文件再改名 |
 
 **并行技术验证（不阻塞主线，但结果影响选型）**
 
@@ -45,8 +45,8 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 
 | ID | 任务 | 验收 | 依赖 | 估时 | 状态 |
 |---|---|---|---|---|---|
-| M0-1 | 建房：目标 + 验收标准 + 选一个 Bot | 界面上 1 分钟建好，落盘可读 | S0-5 | 0.5d | ⬜ |
-| M0-2 | 房间页三栏布局（列表 / 消息流 / 成员） | 空态、加载态、错误态齐全 | S0-3 | 1d | ⬜ |
+| M0-1 | 建房：目标 + 验收标准 + 选一个 Bot | 界面上 1 分钟建好，落盘可读 | S0-5 | 0.5d | ✅ 建/列/详情；Bot 选择留到 M1。见 [spike/m0-1-rooms.png](spike/m0-1-rooms.png) |
+| M0-2 | 房间页三栏布局（列表 / 消息流 / 成员） | 空态、加载态、错误态齐全 | S0-3 | 1d | ✅ |
 | M0-3 | **单 Bot 执行**：headless 子进程跑一个 Run，事件流进消息流 | 发一条消息，Bot 在房间里回话并展示工具动作 | X-1、S0-4 | 1.5d | ⬜ |
 | M0-4 | 消息流渲染：人话 / Bot 话 / 工具动作（折叠） | 三种类型正确渲染，工具动作默认折叠可展开 | M0-2 | 0.5d | ⬜ |
 | M0-5 | @ 提及触发：`@某Bot` 才响应 | 不 @ 时 Bot 不抢话 | M0-3 | 0.5d | ⬜ |

@@ -1,22 +1,32 @@
 /**
- * Host 侧插件。
+ * Host 侧插件入口。
  *
- * M0 阶段这里会挂：房间存储、编排调度、事件推送。
- * 现在只确认包能被 Loader 正确加载。
+ * 职责：把房间 API 挂到 DSH 的 web 服务器上。
+ * 编排、调度、Run 生命周期会在后续里程碑加进来。
  */
-import type { Context } from '@deepseek-ai/cordis'
+import { API_PREFIX, handle } from './host/api.js'
+import type { HostContext } from './host/types.js'
 
 /** Cordis 插件名。 */
 export const name = 'dshbot'
 
-/** 暂时不依赖任何 Host 服务。 */
-export const inject: string[] = []
+/** 需要 web 服务器；没有它的组合（比如纯 headless）不加载本插件。 */
+export const inject: string[] = ['webServer']
 
 /**
  * 挂载入口。
  *
- * @param _ctx - Host 侧插件上下文
+ * @param ctx - Host 侧插件上下文
  */
-export function apply(_ctx: Context): void {
-  console.log('[dshbot] host side loaded')
+export function apply(ctx: HostContext): void {
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'prefix',
+        path: API_PREFIX,
+        handler: handle
+      }),
+    'dshbot: rooms api'
+  )
+  console.log('[dshbot] host side loaded, api at ' + API_PREFIX)
 }
