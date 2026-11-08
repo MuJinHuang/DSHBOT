@@ -153,7 +153,7 @@ status: idle             # 见 5.3
 |---|---|
 | 工作文件 | **共享区**（房间级，一份仓库）+ **私有区**（`seats/<bot>/`，草稿与临时文件） |
 | 写共享区 | 需拿**写锁**，同一文件同时只有一个 Bot 能写 |
-| 进程 | 每个 Run 一个独立进程（`dsh headless`）或独立 session |
+| 进程 | **每个 Run 一个独立 session**（进程内 activation，共享宿主进程）。子进程方案已否决，见 [spike/x1-findings.md](spike/x1-findings.md) |
 | 浏览器 | 独立 `user-data-dir`，cookie/登录态互不串 |
 | 凭证 | 按 Bot 授权，**不进上下文**，由工具代理注入 |
 | 配额 | 并发数、CPU/内存、token 预算 |
@@ -338,7 +338,7 @@ status: idle             # 见 5.3
 
 | 维度 | 要求 |
 |---|---|
-| 隔离 | 每 Run 独立进程 + 独立 workspace 视图；浏览器独立 profile |
+| 隔离 | 每 Run 独立 session + 独立 workspace 视图；浏览器独立 profile。**放弃进程级隔离**（账号凭证绑 inferenceOrigin，子进程拿不到 token） |
 | 并发 | 单房间 ≥ 4 个 Bot 同时干活；单机 ≥ 3 个房间 |
 | 恢复 | 插件重启后房间可续，不丢消息与任务卡状态 |
 | 时延 | 消息上屏 < 1s；状态灯 < 1s；接管生效 < 2s |
