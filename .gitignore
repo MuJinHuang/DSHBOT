@@ -1,0 +1,27 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建产物
+dist/
+lib/
+*.tsbuildinfo
+
+# 运行期数据
+.dsh/
+data/
+*.log
+
+# 本地环境
+.env
+.env.*
+!.env.example
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 临时
+tmp/
+.cache/
