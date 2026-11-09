@@ -85,6 +85,27 @@ export interface Member {
   activity?: string
   /** 本 Bot 在本房间累计的 token。 */
   tokensUsed: number
+  /** 软写锁：本 Bot 声明负责的文件路径，别人不要再动。 */
+  files?: string[]
+}
+
+/** 单条验收点的判定。 */
+export interface DeliveryCheck {
+  point: string
+  verdict: 'pass' | 'fail' | 'unsure'
+  reason: string
+}
+
+/** 一次交付的结论。 */
+export interface Delivery {
+  at: string
+  checks: DeliveryCheck[]
+  /** 工作区里变更过的文件。 */
+  changedFiles: string[]
+  /** 产出这份结论时花的 token。 */
+  tokensUsed: number
+  /** 一句话总结。 */
+  summary: string
 }
 
 /** Bot 在房间里的工位：独立工作区 + 进程 + 浏览器 profile。 */
@@ -122,6 +143,8 @@ export interface Room {
   sessionSeq?: number
   /** 只响应 @ 提及：开着时，没 @ 到 Bot 的话只记录不回。 */
   mentionOnly?: boolean
+  /** 最近一次交付结论。 */
+  delivery?: Delivery
   tokensUsed: number
   createdAt: string
   updatedAt: string

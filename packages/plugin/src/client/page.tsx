@@ -1,6 +1,6 @@
 import { createElement as h, useCallback, useEffect, useState } from 'react'
-import type { Member, Message, Room } from '@dshbot/core'
-import { addMember, createRoom, listMessages, listRooms, say, setRoomState } from './api'
+import type { Delivery, Member, Message, Room } from '@dshbot/core'
+import { addMember, createRoom, deliver, listMessages, listRooms, say, setRoomState, takeover } from './api'
 
 /**
  * 房间页。
@@ -389,17 +389,72 @@ function MessageRow(props: { message: Message; member?: Member }) {
   )
 }
 
+/** 交付结论面板。 */
+function DeliveryPanel(props: { delivery: Delivery }) {
+  const { delivery } = props
+  const passed = delivery.checks.filter((c) => c.verdict === 'pass').length
+  const icon = (v: string) => (v === 'pass' ? '✅' : v === 'fail' ? '❌' : '❓')
+
+  return h(
+    'div',
+    {
+      style: {
+        border: LINE,
+        borderRadius: 8,
+        padding: '10px 12px',
+        marginBottom: 14,
+        background: 'rgba(128,128,128,0.05)',
+        fontSize: 12
+      }
+    },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', marginBottom: 8 } },
+      h('span', { style: { fontWeight: 600 } }, '交付结论'),
+      h('span', { style: { marginLeft: 8, color: passed === delivery.checks.length ? '#2f9e44' : '#e8a33d' } },
+        `${passed}/${delivery.checks.length} 通过`),
+      h('span', { style: { marginLeft: 'auto', color: MUTED, fontSize: 11 } },
+        new Date(delivery.at).toLocaleTimeString())
+    ),
+    ...delivery.checks.map((check, index) =>
+      h(
+        'div',
+        { key: index, style: { display: 'flex', gap: 6, marginBottom: 4, lineHeight: 1.5 } },
+        h('span', {}, icon(check.verdict)),
+        h(
+          'div',
+          {},
+          h('div', {}, check.point),
+          h('div', { style: { color: MUTED, fontSize: 11 } }, check.reason)
+        )
+      )
+    ),
+    h(
+      'div',
+      { style: { color: MUTED, fontSize: 11, marginTop: 8, borderTop: LINE, paddingTop: 6 } },
+      `变更文件 ${delivery.changedFiles.length} 个` +
+        (delivery.changedFiles.length === 0 ? '' : '：' + delivery.changedFiles.slice(0, 6).join('、')) +
+        `　·　本次验收花费 ${formatTokens(delivery.tokensUsed)}`
+    )
+  )
+}
+
 /** 房间详情：目标 + 验收 + 消息流 + 输入框。 */
 function RoomDetail(props: {
   room: Room
   messages: Message[]
   sending: boolean
+  delivering: boolean
   error: string | null
   onSend: (text: string) => void
   onState: (action: 'pause' | 'resume' | 'archive' | 'unarchive' | 'toggleMentionOnly') => void
+  onDeliver: () => void
+  onTakeover: (action: 'take' | 'return', note?: string) => void
 }) {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
+  const [returnOpen, setReturnOpen] = useState(false)
+  const [returnNote, setReturnNote] = useState('')
 
   const submit = () => {
     const text = draft.trim()
@@ -445,14 +500,17 @@ function RoomDetail(props: {
       h('div', { style: { fontSize: 17 } }, room.name),
       h(Badge, {}, STATUS_LABEL[room.status] ?? room.status),
       h('div', { style: { flex: 1 } }),
+      actionButton(props.delivering ? '验收中…' : '交付验收', 'deliver', () => props.onDeliver()),
       paused
         ? actionButton('恢复', 'resume', () => props.onState('resume'))
         : archived
           ? actionButton('取消归档', 'unarchive', () => props.onState('unarchive'))
-          : actionButton('暂停', 'pause', () => props.onState('pause')),
-      archived
-        ? null
-        : actionButton('归档', 'archive', () => props.onState('archive')),
+          : actionButton('接管', 'takeover', () => props.onTakeover('take')),
+      paused
+        ? actionButton('交还', 'giveback', () => setReturnOpen(true))
+        : archived
+          ? null
+          : actionButton('归档', 'archive', () => props.onState('archive')),
       actionButton(mentionOnly ? '仅 @ 响应：开' : '仅 @ 响应：关', 'mention', () =>
         props.onState('toggleMentionOnly')
       )
@@ -497,6 +555,8 @@ function RoomDetail(props: {
       { style: { margin: '0 0 18px', paddingLeft: 18, fontSize: 13, lineHeight: 1.8 } },
       ...room.acceptance.map((item, index) => h('li', { key: index }, item))
     ),
+
+    room.delivery === undefined ? null : h(DeliveryPanel, { delivery: room.delivery }),
 
     h(SectionTitle, { key: 'm' }, '消息流'),
     h(
@@ -544,7 +604,90 @@ function RoomDetail(props: {
               textAlign: 'center'
             }
           },
-          paused ? '房间已暂停，恢复后才能继续说话。' : '房间已归档，取消归档后才能继续说话。'
+          paused
+            ? returnOpen
+              ? h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                  h('div', { style: { fontSize: 12, color: MUTED } },
+                    '你在接管期间改了什么？这句会写进房间，Bot 交还后能看到。'),
+                  h(
+                    'div',
+                    { style: { display: 'flex', gap: 8 } },
+                    h('input', {
+                      autoFocus: true,
+                      value: returnNote,
+                      placeholder: '比如：改了 theme.css 的主色，新增了 dark.css',
+                      onChange: (e: { target: { value: string } }) => setReturnNote(e.target.value),
+                      onKeyDown: (e: { key: string }) => {
+                        if (e.key === 'Enter') {
+                          props.onTakeover('return', returnNote.trim())
+                          setReturnOpen(false)
+                          setReturnNote('')
+                        }
+                      },
+                      style: {
+                        flex: 1,
+                        padding: '9px 12px',
+                        borderRadius: 8,
+                        border: LINE,
+                        background: 'transparent',
+                        color: 'inherit',
+                        fontSize: 13,
+                        fontFamily: 'inherit'
+                      }
+                    }),
+                    h(
+                      'button',
+                      {
+                        onClick: () => {
+                          props.onTakeover('return', returnNote.trim())
+                          setReturnOpen(false)
+                          setReturnNote('')
+                        },
+                        style: {
+                          padding: '9px 16px',
+                          borderRadius: 8,
+                          border: 'none',
+                          background: '#2f6fed',
+                          color: '#fff',
+                          fontSize: 13,
+                          fontFamily: 'inherit',
+                          cursor: 'pointer'
+                        }
+                      },
+                      '交还'
+                    )
+                  )
+                )
+              : h(
+                  'div',
+                  {
+                    style: {
+                      fontSize: 12,
+                      color: MUTED,
+                      padding: '9px 12px',
+                      borderRadius: 8,
+                      border: LINE,
+                      textAlign: 'center'
+                    }
+                  },
+                  '房间已暂停：可以点右上角「交还」写一句你改了什么。'
+                )
+            : h(
+                'div',
+                {
+                  style: {
+                    fontSize: 12,
+                    color: MUTED,
+                    padding: '9px 12px',
+                    borderRadius: 8,
+                    border: LINE,
+                    textAlign: 'center'
+                  }
+                },
+                '房间已归档，取消归档后才能继续说话。'
+              )
         )
       : h(
           'div',
@@ -598,6 +741,7 @@ export function RoomsPage() {
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [sending, setSending] = useState(false)
+  const [delivering, setDelivering] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -645,6 +789,19 @@ export function RoomsPage() {
       if (selectedId === null) return
       setSending(true)
       setSendError(null)
+
+      // 跑的过程里定时刷新房间，状态灯才会动
+      const ticker = setInterval(() => {
+        void (async () => {
+          try {
+            const list = await listRooms()
+            setRooms(list)
+          } catch {
+            /* 轮询失败不打断 */
+          }
+        })()
+      }, 1500)
+
       try {
         const created = await say(selectedId, text)
         setMessages((prev) => [
@@ -668,6 +825,7 @@ export function RoomsPage() {
           /* 忽略二次失败 */
         }
       } finally {
+        clearInterval(ticker)
         setSending(false)
       }
     },
@@ -698,6 +856,40 @@ export function RoomsPage() {
         setSendError(null)
       } catch (err) {
         setSendError(err instanceof Error ? err.message : '拉人失败')
+      }
+    },
+    [selectedId]
+  )
+
+  // 交付验收
+  const runDelivery = useCallback(async () => {
+    if (selectedId === null) return
+    setDelivering(true)
+    setSendError(null)
+    try {
+      const delivery = await deliver(selectedId)
+      setRooms((list) =>
+        list.map((r) => (r.id === selectedId ? { ...r, delivery } : r))
+      )
+      setMessages(await listMessages(selectedId))
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '验收失败')
+    } finally {
+      setDelivering(false)
+    }
+  }, [selectedId])
+
+  // 接管 / 交还
+  const changeTakeover = useCallback(
+    async (action: 'take' | 'return', note?: string) => {
+      if (selectedId === null) return
+      try {
+        const result = await takeover(selectedId, action, note)
+        setRooms((list) => list.map((r) => (r.id === result.room.id ? result.room : r)))
+        setMessages(await listMessages(selectedId))
+        setSendError(null)
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : '操作失败')
       }
     },
     [selectedId]
@@ -804,10 +996,14 @@ export function RoomsPage() {
                 room: selected,
                 messages,
                 sending,
+                delivering,
                 error: sendError,
                 onSend: (text: string) => void send(text),
                 onState: (action: string) =>
-                  void changeState(action as Parameters<typeof changeState>[0])
+                  void changeState(action as Parameters<typeof changeState>[0]),
+                onDeliver: () => void runDelivery(),
+                onTakeover: (action: 'take' | 'return', note?: string) =>
+                  void changeTakeover(action, note)
               })
             : h(
                 'div',

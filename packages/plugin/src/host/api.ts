@@ -15,7 +15,7 @@ import type { Member, Room } from '@dshbot/core'
 import { runOnce } from './agent.js'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, saveDb } from './store.js'
-import { handleRoomMessage, makeMessage, parseMentions } from './turn.js'
+import { deliverRoom, handleRoomMessage, makeMessage, parseMentions } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
@@ -236,6 +236,70 @@ export function createHandler(ctx: AgentContext) {
         target.updatedAt = nowIso()
         saveDb(db)
         send(res, 200, { room: target })
+        return
+      }
+
+      // ---- /rooms/:id/deliver（验收交付）----
+      if (parts.length === 3 && parts[2] === 'deliver' && method === 'POST') {
+        if (room.status === 'paused' || room.status === 'archived') {
+          send(res, 409, { error: '房间已暂停或归档，先恢复再验收' })
+          return
+        }
+        const delivery = await deliverRoom(ctx, roomId)
+        send(res, 200, { delivery, room: loadDb().rooms.find((r) => r.id === roomId) })
+        return
+      }
+
+      // ---- /rooms/:id/takeover（接管 / 交还）----
+      if (parts.length === 3 && parts[2] === 'takeover' && method === 'POST') {
+        const input = (await readJson(req)) as { action?: unknown; note?: unknown }
+        const action = String(input.action ?? '')
+        const db = loadDb()
+        const target = db.rooms.find((r) => r.id === roomId)
+        if (target === undefined) {
+          send(res, 404, { error: '房间不存在' })
+          return
+        }
+
+        if (action === 'take') {
+          target.status = 'paused'
+          for (const member of target.members ?? []) {
+            if (member.status === 'thinking' || member.status === 'queued') {
+              member.status = 'waiting_human'
+              member.activity = '已让人接管'
+            }
+          }
+          const note = makeMessage(roomId, 'system', 'system', '已接管：Bot 停手，现在改由人直接操作工作区。')
+          db.messages.push(note)
+          target.updatedAt = nowIso()
+          saveDb(db)
+          send(res, 200, { room: target, messages: [note] })
+          return
+        }
+
+        if (action === 'return') {
+          target.status = 'created'
+          for (const member of target.members ?? []) {
+            if (member.status === 'waiting_human') {
+              member.status = 'idle'
+              member.activity = undefined
+            }
+          }
+          const summary = isNonEmptyString(input.note) ? input.note.trim() : '（没有填写改了什么）'
+          const note = makeMessage(
+            roomId,
+            'system',
+            'system',
+            `已交还，人在接管期间做了：${summary}`
+          )
+          db.messages.push(note)
+          target.updatedAt = nowIso()
+          saveDb(db)
+          send(res, 200, { room: target, messages: [note] })
+          return
+        }
+
+        send(res, 400, { error: `未知动作：${action}` })
         return
       }
 

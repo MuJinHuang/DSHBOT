@@ -10,7 +10,8 @@
  * 4. 串行：同一房间一次只跑一轮，避免两个请求打架。
  */
 import { newId, nowIso } from '@dshbot/core'
-import type { Member, Message, Room } from '@dshbot/core'
+import type { Delivery, DeliveryCheck, Member, Message, Room } from '@dshbot/core'
+import { execFileSync } from 'node:child_process'
 import { runOnce } from './agent.js'
 import type { AgentContext, RunOutcome } from './agent.js'
 import { loadDb, saveDb } from './store.js'
@@ -23,6 +24,8 @@ const RECENT_ITEM_CHARS = 90
 const CONTEXT_CHAR_LIMIT = 2400
 /** 总管一轮最多派几路活，防止一个回复炸出十个任务。 */
 const MAX_DISPATCH = 3
+/** 同时最多跑几个派出去的 Bot。 */
+const DISPATCH_CONCURRENCY = 2
 
 /** 每个房间一条串行队列。 */
 const queues = new Map<string, Promise<unknown>>()
@@ -120,7 +123,10 @@ export function buildContext(room: Room, member: Member, task: string): string {
     `成员：${members.join('、')}`,
     member.role === 'host'
       ? '你是本房间的总管：先用 1-2 次工具确认现状，然后给出结论；该派人做的用 @名字 派活，派活时把要求写清楚。不要自己深挖细节。**不要调用 subagent 工具**——房间里的人要用 @名字 指派，不用子代理。'
-      : `你是执行 Bot「${member.name}」：只做分给你的那一件事，最多用 5 次工具，够用就下结论。必须给出一段文字结论，不要只调工具不说话。不要调用 subagent 工具。`
+      : `你是执行 Bot「${member.name}」：只做分给你的那一件事，最多用 5 次工具，够用就下结论。必须给出一段文字结论，不要只调工具不说话。不要调用 subagent 工具。`,
+    ...(member.files === undefined || member.files.length === 0
+      ? []
+      : [`你负责的文件：${member.files.join('、')}。不要动别人的文件。`])
   ]
 
   const recent = recentLines(room.id)
@@ -256,6 +262,169 @@ function summarizeArgs(raw: string): string {
   return text.length > 80 ? text.slice(0, 80) + '…' : text
 }
 
+/** 从任务文本里抽出它可能碰的文件，用作软写锁声明。 */
+function extractFiles(text: string): string[] {
+  const found = new Set<string>()
+  for (const match of text.matchAll(/[A-Za-z0-9_@\-./\\]+\.[A-Za-z0-9]{1,6}\b/g)) {
+    const path = match[0]
+    const looksLikeFile =
+      path.includes('/') ||
+      path.includes('\\') ||
+      /\.(ts|tsx|js|jsx|json|md|css|html|py|yml|yaml|toml)$/i.test(path)
+    if (looksLikeFile) found.add(path.replaceAll('\\', '/'))
+    if (found.size >= 5) break
+  }
+  return [...found]
+}
+
+/** 限量并发跑一批任务，结果按原顺序返回，失败为 null。 */
+async function runWithLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<(R | null)[]> {
+  const results: (R | null)[] = new Array(items.length).fill(null)
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      const item = items[index]
+      if (item === undefined) continue
+      try {
+        results[index] = await fn(item)
+      } catch {
+        results[index] = null
+      }
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+/** 读工作区里改过哪些文件。 */
+function changedFiles(dir: string): string[] {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain'], {
+      cwd: dir,
+      encoding: 'utf8',
+      timeout: 8000
+    })
+    return out
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      // porcelain 是 "XY path"，前两位是状态，后面才是路径
+      .map((line) => line.slice(2).trim())
+      .filter((path) => path !== '')
+      .slice(0, 50)
+  } catch {
+    return []
+  }
+}
+
+/** 解析判定结果，容错到"判不出来就标存疑"。 */
+function parseChecks(raw: string, points: string[]): DeliveryCheck[] {
+  const start = raw.indexOf('[')
+  const end = raw.lastIndexOf(']')
+  if (start >= 0 && end > start) {
+    try {
+      const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown
+      if (Array.isArray(parsed)) {
+        return points.map((point, index) => {
+          const item = parsed[index] as Record<string, unknown> | undefined
+          const verdict = String(item?.verdict ?? 'unsure')
+          return {
+            point,
+            verdict:
+              verdict === 'pass' || verdict === 'fail' || verdict === 'unsure' ? verdict : 'unsure',
+            reason: String(item?.reason ?? '（没有给出理由）').slice(0, 300)
+          }
+        })
+      }
+    } catch {
+      /* 落到下面的兜底 */
+    }
+  }
+  return points.map((point) => ({
+    point,
+    verdict: 'unsure' as const,
+    reason: '模型没有按格式给出判定，需要人工确认'
+  }))
+}
+
+/**
+ * 交付：看工作区变了什么，再让总管逐条判定验收点。
+ *
+ * @param ctx - Host 上下文
+ * @param roomId - 房间
+ * @returns 交付结论
+ */
+export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<Delivery> {
+  const db = loadDb()
+  const room = db.rooms.find((r) => r.id === roomId)
+  if (room === undefined) throw new Error(`房间不存在：${roomId}`)
+
+  const dir = room.shared !== '' ? room.shared : process.cwd()
+  const files = changedFiles(dir)
+  const recent = recentLines(roomId, 10).join('\n')
+
+  const judge = [
+    '你现在是验收人，只做判定，不要改任何文件。',
+    `房间：${room.name}`,
+    `目标：${room.goal}`,
+    '验收标准：',
+    ...room.acceptance.map((a, i) => `${i + 1}. ${a}`),
+    '',
+    '房间最近动态：',
+    recent,
+    '',
+    `工作区（${dir}）里变更的文件：`,
+    files.length === 0 ? '（没有检测到变更）' : files.join('\n'),
+    '',
+    '请逐条判定每个验收标准，只输出一个 JSON 数组，不要额外文字。',
+    '格式：[{"verdict":"pass|fail|unsure","reason":"一句话理由"}]',
+    '数组长度必须等于验收标准条数。'
+  ].join('\n')
+
+  const judgeMember =
+    (room.members ?? []).find((m) => m.role === 'host') ?? (room.members ?? [])[0]
+  if (judgeMember === undefined) throw new Error('房间里还没有 Bot，无法验收')
+
+  const outcome = await runOnce(ctx, judge, dir, judgeMember.sessionId, judgeMember.sessionSeq ?? 0)
+  const checks = parseChecks(outcome.text, room.acceptance)
+
+  const passed = checks.filter((c) => c.verdict === 'pass').length
+  const delivery: Delivery = {
+    at: nowIso(),
+    checks,
+    changedFiles: files,
+    tokensUsed: outcome.usage.total,
+    summary: `验收点 ${passed}/${checks.length} 通过；变更文件 ${files.length} 个`
+  }
+
+  const after = loadDb()
+  const done = after.rooms.find((r) => r.id === roomId)
+  if (done !== undefined) {
+    done.delivery = delivery
+    done.tokensUsed = (done.tokensUsed ?? 0) + outcome.usage.total
+    const seat = done.members?.find((m) => m.botId === judgeMember.botId)
+    if (seat !== undefined) {
+      seat.sessionId = outcome.sessionId
+      seat.sessionSeq = outcome.lastSeq
+      seat.tokensUsed = (seat.tokensUsed ?? 0) + outcome.usage.total
+    }
+    done.updatedAt = nowIso()
+  }
+
+  const card = makeMessage(roomId, 'system', 'system', delivery.summary)
+  after.messages.push(card)
+  saveDb(after)
+
+  return delivery
+}
+
 /**
  * 处理房间里的这一条消息。
  *
@@ -326,34 +495,91 @@ export async function handleRoomMessage(
         const fresh = loadDb().rooms.find((r) => r.id === roomId)
         if (fresh === undefined) continue
         const receivers = dispatchTargets(fresh, reply, target)
-        for (const receiver of receivers) {
-          const task = taskFor(reply, receiver.name)
-          const card = makeMessage(roomId, 'assignment', target.botId, `${target.name} → ${receiver.name}：${task}`)
-          card.payload = {
-            title: task,
-            from: target.name,
-            to: receiver.name,
-            botId: receiver.botId,
-            status: 'running'
-          }
-          card.botId = receiver.botId
-          const withCard = loadDb()
-          withCard.messages.push(card)
-          saveDb(withCard)
-          produced.push(card)
+        if (receivers.length === 0) continue
 
-          const sub = await runMember(ctx, roomId, receiver, task, task)
+        // 派活前先把任务卡都立起来，状态 running；同时做软写锁的声明
+        const plans = receivers.map((receiver) => ({
+          receiver,
+          task: taskFor(reply, receiver.name)
+        }))
+
+        const withCards = loadDb()
+        const hostRoom = withCards.rooms.find((r) => r.id === roomId)
+        const warnings: Message[] = []
+
+        for (const plan of plans) {
+          const files = extractFiles(plan.task)
+          const seat = hostRoom?.members?.find((m) => m.botId === plan.receiver.botId)
+          if (seat !== undefined && files.length > 0) {
+            const others = (hostRoom?.members ?? []).filter((m) => m.botId !== seat.botId)
+            for (const file of files) {
+              const owner = others.find((m) => (m.files ?? []).includes(file))
+              if (owner !== undefined) {
+                const warn = makeMessage(
+                  roomId,
+                  'system',
+                  'system',
+                  `软写锁提醒：${file} 已经声明给 ${owner.name}，${seat.name} 这次也可能会动它，交付时请留意冲突。`
+                )
+                warnings.push(warn)
+              }
+            }
+            seat.files = [...new Set([...(seat.files ?? []), ...files])]
+          }
+        }
+
+        const cards = plans.map((plan) => {
+          const seat = hostRoom?.members?.find((m) => m.botId === plan.receiver.botId)
+          const card = makeMessage(
+            roomId,
+            'assignment',
+            target.botId,
+            `${target.name} → ${plan.receiver.name}：${plan.task}`
+          )
+          card.payload = {
+            title: plan.task,
+            from: target.name,
+            to: plan.receiver.name,
+            botId: plan.receiver.botId,
+            status: 'running',
+            ...(seat?.files === undefined ? {} : { files: seat.files })
+          }
+          card.botId = plan.receiver.botId
+          return card
+        })
+
+        withCards.messages.push(...warnings, ...cards)
+        saveDb(withCards)
+        produced.push(...warnings, ...cards)
+
+        // 并行跑，最多 2 个同时开工
+        const results = await runWithLimit(plans, DISPATCH_CONCURRENCY, async (plan) => {
+          const sub = await runMember(ctx, roomId, plan.receiver, plan.task, plan.task)
+          return { plan, sub }
+        })
+
+        for (const item of results) {
+          if (item === null) continue
+          const { plan, sub } = item
           produced.push(...sub.messages)
 
-          const doneCard = makeMessage(roomId, 'assignment', target.botId, `${target.name} → ${receiver.name}：${task}`)
+          const summary = (sub.outcome?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
+          const doneCard = makeMessage(
+            roomId,
+            'assignment',
+            target.botId,
+            `${target.name} → ${plan.receiver.name}：${plan.task}`
+          )
           doneCard.payload = {
-            title: task,
+            title: plan.task,
             from: target.name,
-            to: receiver.name,
-            botId: receiver.botId,
-            status: sub.outcome === undefined ? 'failed' : 'done'
+            to: plan.receiver.name,
+            botId: plan.receiver.botId,
+            status: sub.outcome === undefined ? 'failed' : 'done',
+            // Handoff：把执行者的结论摘要挂在卡上，下游不用翻消息流
+            ...(summary === '' ? {} : { result: summary })
           }
-          doneCard.botId = receiver.botId
+          doneCard.botId = plan.receiver.botId
           const closed = loadDb()
           closed.messages.push(doneCard)
           saveDb(closed)
