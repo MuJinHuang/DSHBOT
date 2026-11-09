@@ -1,9 +1,10 @@
 {
   "name": "@dshbot/plugin",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSHBot 的 DSH 插件：房间页面 + 编排服务",
+  "description": "DSHBot 的 DSH 插件：房间页面 + 多 Bot 编排",
+  "license": "MIT",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",

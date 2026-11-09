@@ -324,33 +324,61 @@ function changedFiles(dir: string): string[] {
   }
 }
 
-/** 解析判定结果，容错到"判不出来就标存疑"。 */
+/** 把模型给的各种写法归一成三态。 */
+function normalizeVerdict(value: unknown): DeliveryCheck['verdict'] {
+  const text = String(value ?? '').toLowerCase()
+  if (text === 'pass' || text.includes('通过') || text === 'true') return 'pass'
+  if (text === 'fail' || text.includes('不通过') || text.includes('失败') || text === 'false') {
+    return 'fail'
+  }
+  return 'unsure'
+}
+
+/** 解析判定结果，三级容错，最后才落到"存疑"。 */
 function parseChecks(raw: string, points: string[]): DeliveryCheck[] {
+  // ① JSON 数组
   const start = raw.indexOf('[')
   const end = raw.lastIndexOf(']')
   if (start >= 0 && end > start) {
     try {
       const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length >= points.length) {
         return points.map((point, index) => {
           const item = parsed[index] as Record<string, unknown> | undefined
-          const verdict = String(item?.verdict ?? 'unsure')
           return {
             point,
-            verdict:
-              verdict === 'pass' || verdict === 'fail' || verdict === 'unsure' ? verdict : 'unsure',
-            reason: String(item?.reason ?? '（没有给出理由）').slice(0, 300)
+            verdict: normalizeVerdict(item?.verdict ?? item?.result),
+            reason: String(item?.reason ?? item?.why ?? '（没有给出理由）').slice(0, 300)
           }
         })
       }
     } catch {
-      /* 落到下面的兜底 */
+      /* 往下走 */
     }
   }
+
+  // ② 逐行匹配：每行里出现验收点开头几个字，再找 pass/fail
+  const lines = raw.split('\n')
+  const perLine: DeliveryCheck[] = []
+  for (const point of points) {
+    const hit = lines.find((line) => line.includes(point.slice(0, 6)))
+    if (hit === undefined) continue
+    perLine.push({
+      point,
+      verdict: normalizeVerdict(hit),
+      reason: hit.replace(/\s+/g, ' ').trim().slice(0, 300)
+    })
+  }
+  if (perLine.length === points.length && perLine.some((c) => c.verdict !== 'unsure')) {
+    return perLine
+  }
+
+  // ③ 兜底：全存疑，但把模型原话留一句，方便人工复核
+  const digest = raw.replace(/\s+/g, ' ').trim().slice(0, 200)
   return points.map((point) => ({
     point,
     verdict: 'unsure' as const,
-    reason: '模型没有按格式给出判定，需要人工确认'
+    reason: digest === '' ? '模型没有给出判定' : `模型没有按格式判定：${digest}`
   }))
 }
 
@@ -370,37 +398,75 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
   const files = changedFiles(dir)
   const recent = recentLines(roomId, 10).join('\n')
 
+  // 判定要看得到产出正文，不能只看摘要
+  const outputs = db.messages
+    .filter((m) => m.roomId === roomId && m.kind === 'bot')
+    .slice(-3)
+    .map((m, index) => {
+      const text = m.text.replace(/\s+/g, ' ').trim()
+      const short = text.length > 1500 ? text.slice(0, 1500) + '…' : text
+      return `【产出 ${index + 1}】${short}`
+    })
+    .join('\n\n')
+
   const judge = [
-    '你现在是验收人，只做判定，不要改任何文件。',
+    '你是验收人。**禁止调用任何工具**（不许 read / bash / glob 之类），材料已经全部给你了，直接判断。',
     `房间：${room.name}`,
     `目标：${room.goal}`,
     '验收标准：',
     ...room.acceptance.map((a, i) => `${i + 1}. ${a}`),
     '',
-    '房间最近动态：',
+    '房间最近动态（含执行者的产出摘要）：',
     recent,
+    '',
+    '房间里的产出正文（最近几条 Bot 回复，判定以它为准）：',
+    outputs === '' ? '（还没有任何 Bot 产出）' : outputs,
     '',
     `工作区（${dir}）里变更的文件：`,
     files.length === 0 ? '（没有检测到变更）' : files.join('\n'),
     '',
-    '请逐条判定每个验收标准，只输出一个 JSON 数组，不要额外文字。',
+    '请逐条判定每个验收标准。**直接输出**一个 JSON 数组，不要解释、不要代码块、不要前后缀。',
     '格式：[{"verdict":"pass|fail|unsure","reason":"一句话理由"}]',
-    '数组长度必须等于验收标准条数。'
+    '数组长度必须等于验收标准条数。证据不足就判 unsure，并在 reason 里说明缺什么证据。'
   ].join('\n')
 
   const judgeMember =
     (room.members ?? []).find((m) => m.role === 'host') ?? (room.members ?? [])[0]
   if (judgeMember === undefined) throw new Error('房间里还没有 Bot，无法验收')
 
-  const outcome = await runOnce(ctx, judge, dir, judgeMember.sessionId, judgeMember.sessionSeq ?? 0)
-  const checks = parseChecks(outcome.text, room.acceptance)
+  // 用全新会话判：避免验收人的历史里塞满工具调用，导致它习惯性又去翻文件
+  const outcome = await runOnce(ctx, judge, dir)
+  let checks = parseChecks(outcome.text, room.acceptance)
+  let spend = outcome.usage.total
+  let sessionId = judgeMember.sessionId ?? outcome.sessionId
+  let lastSeq = judgeMember.sessionSeq ?? 0
+
+  // 一条都没判出来，说明格式没跟上；再要一次，这次只许给 JSON
+  if (checks.every((c) => c.verdict === 'unsure')) {
+    const retry = [
+      '上一次你的回答不是合法 JSON。这次只输出一个 JSON 数组，不要任何解释、不要代码块。',
+      `数组长度必须是 ${room.acceptance.length}，第 i 个元素对应第 i 条验收标准：`,
+      ...room.acceptance.map((a, i) => `${i + 1}. ${a}`),
+      '元素格式：{"verdict":"pass"|"fail"|"unsure","reason":"一句话理由"}'
+    ].join('\n')
+    try {
+      const second = await runOnce(ctx, retry, dir)
+      const retried = parseChecks(second.text, room.acceptance)
+      if (retried.some((c) => c.verdict !== 'unsure')) {
+        checks = retried
+        spend += second.usage.total
+      }
+    } catch {
+      /* 重试也失败就保留存疑结论 */
+    }
+  }
 
   const passed = checks.filter((c) => c.verdict === 'pass').length
   const delivery: Delivery = {
     at: nowIso(),
     checks,
     changedFiles: files,
-    tokensUsed: outcome.usage.total,
+    tokensUsed: spend,
     summary: `验收点 ${passed}/${checks.length} 通过；变更文件 ${files.length} 个`
   }
 
@@ -408,12 +474,12 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
   const done = after.rooms.find((r) => r.id === roomId)
   if (done !== undefined) {
     done.delivery = delivery
-    done.tokensUsed = (done.tokensUsed ?? 0) + outcome.usage.total
+    done.tokensUsed = (done.tokensUsed ?? 0) + spend
     const seat = done.members?.find((m) => m.botId === judgeMember.botId)
     if (seat !== undefined) {
-      seat.sessionId = outcome.sessionId
-      seat.sessionSeq = outcome.lastSeq
-      seat.tokensUsed = (seat.tokensUsed ?? 0) + outcome.usage.total
+      seat.sessionId = sessionId
+      seat.sessionSeq = lastSeq
+      seat.tokensUsed = (seat.tokensUsed ?? 0) + spend
     }
     done.updatedAt = nowIso()
   }

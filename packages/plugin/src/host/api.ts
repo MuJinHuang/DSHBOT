@@ -12,7 +12,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { newId, nowIso } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
-import { runOnce } from './agent.js'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, saveDb } from './store.js'
 import { deliverRoom, handleRoomMessage, makeMessage, parseMentions } from './turn.js'
@@ -125,18 +124,6 @@ export function createHandler(ctx: AgentContext) {
       // ---- /health ----
       if (parts.length === 1 && parts[0] === 'health') {
         send(res, 200, { ok: true })
-        return
-      }
-
-      // ---- /_probe（开发探针）----
-      if (parts.length === 1 && parts[0] === '_probe' && method === 'POST') {
-        const input = (await readJson(req)) as { prompt?: unknown }
-        if (!isNonEmptyString(input.prompt)) {
-          send(res, 400, { error: 'prompt 不能为空' })
-          return
-        }
-        const outcome = await runOnce(ctx, input.prompt, process.cwd())
-        send(res, 200, outcome)
         return
       }
 
