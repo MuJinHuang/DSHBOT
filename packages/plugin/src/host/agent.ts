@@ -27,6 +27,8 @@ export interface ToolStep {
 /** 跑一次的结果。 */
 export interface RunOutcome {
   sessionId: string
+  /** 本轮结束后的事件水位，下次传回来当起点。 */
+  lastSeq: number
   text: string
   status: string
   /** 这一轮用到的工具，按发生顺序。 */
@@ -75,6 +77,8 @@ export interface AgentContext {
         agentPreset?: string
         sessionId?: string
       }): Promise<{ agent?: AgentHandle; agentPreset?: string }>
+      /** 活着就返回，不在就冷恢复；会话不存在则抛错。 */
+      resolveAgent?(sessionId: string): Promise<{ agent?: AgentHandle } & Record<string, unknown>>
     }
   }
   sessions?: { get(id: string): SessionLike | undefined }
@@ -157,26 +161,40 @@ function extractText(events: unknown[]): string {
 }
 
 /**
- * 起一个 agent，投一条消息，等它回到 idle。
+ * 拿到这一轮要用的 agent：有会话就续上，没有就新开。
  *
  * @param ctx - Host 上下文
- * @param prompt - 用户输入
+ * @param sessionId - 房间记住的会话 id，可为空
  * @param cwd - 工作目录
+ * @returns agent 与它的会话 id
  */
-export async function runOnce(
+async function acquireAgent(
   ctx: AgentContext,
-  prompt: string,
+  sessionId: string | undefined,
   cwd: string
-): Promise<RunOutcome> {
-  const started = Date.now()
-  const requestedId = newId('sess')
+): Promise<{ agent: AgentHandle; sessionId: string }> {
+  // ① 先试续上已有会话：内存里活着就直接用，不在就冷恢复
+  if (sessionId !== undefined && sessionId !== '') {
+    const resolver = ctx.sessionController?.agents?.resolveAgent
+    if (resolver !== undefined) {
+      try {
+        const found = await resolver(sessionId)
+        const agent = (found?.agent ?? found) as AgentHandle | undefined
+        if (agent !== undefined && agent !== null && typeof agent.followup === 'function') {
+          return { agent, sessionId: agent.id ?? sessionId }
+        }
+      } catch {
+        /* 会话没了就往下走，新开一个 */
+      }
+    }
+    const live = ctx.agents.get(sessionId)
+    if (live !== undefined && typeof live.followup === 'function') {
+      return { agent: live, sessionId: live.id ?? sessionId }
+    }
+  }
 
-  // 首选 UI 同款路径：sessionController.agents.createSession 会带上 Agent preset
-  // 与默认模型。只用 agents.create() 会缺 preset，系统提示词里的 {{model}}
-  // 填不上，回合会以 "prompt variable ... has no value" 秒失败。
-  //
-  // 注意：走 controller 时**不传 sessionId**，让它自己 mint。传一个自制 id 会
-  // 进 reuse/claim 分支，实测会跑出十几个重复回合。
+  // ② 新开：UI 同款路径，自动带 preset 与默认模型
+  const requestedId = newId('sess')
   const viaController = ctx.sessionController?.agents?.createSession
   const created = viaController
     ? await ctx.sessionController!.agents!.createSession({ cwd })
@@ -184,10 +202,30 @@ export async function runOnce(
       ? await ctx.agents.createSession({ cwd })
       : await ctx.agents.create({ sessionId: requestedId, agentOptions: { cwd } })
 
-  // 返回值是 { agent, agentPreset }，真正的句柄在 agent 上
   const agent = (created.agent ?? created) as AgentHandle
-  // 真正落盘的会话 id 由宿主决定
-  const sessionId = agent.id ?? requestedId
+  return { agent, sessionId: agent.id ?? requestedId }
+}
+
+/**
+ * 起一个 agent 或续上旧会话，投一条消息，等它回到 idle。
+ *
+ * @param ctx - Host 上下文
+ * @param prompt - 用户输入
+ * @param cwd - 工作目录
+ * @param existingSessionId - 房间记住的会话 id，传了就续聊
+ * @param sinceSeq - 只处理比这个序号更新的事件，用来跳过历史
+ */
+export async function runOnce(
+  ctx: AgentContext,
+  prompt: string,
+  cwd: string,
+  existingSessionId?: string,
+  sinceSeq = 0
+): Promise<RunOutcome> {
+  const started = Date.now()
+  const acquired = await acquireAgent(ctx, existingSessionId, cwd)
+  const agent = acquired.agent
+  const sessionId = acquired.sessionId
 
   // 句柄形状随宿主版本变，先探清楚再调用，免得报一句没用的 "not a function"
   const ownKeys = Object.keys(agent)
@@ -288,15 +326,29 @@ export async function runOnce(
       else loose.push(event)
     }
   }
-  const events: unknown[] = [
+  const allEvents: unknown[] = [
     ...[...bySeq.entries()].sort((a, b) => a[0] - b[0]).map(([, event]) => event),
     ...loose
   ]
 
-  if (events.length === 0) {
+  if (allEvents.length === 0) {
     const session = ctx.sessions?.get(sessionId)
-    events.push(...readEvents(session))
+    allEvents.push(...readEvents(session))
   }
+
+  // 续聊时事件流含整段历史，只保留水位之后的
+  const events =
+    sinceSeq > 0
+      ? allEvents.filter((raw) => {
+          const seq = Number((raw as { seq?: unknown })?.seq)
+          return !Number.isFinite(seq) || seq > sinceSeq
+        })
+      : allEvents
+
+  const lastSeq = allEvents.reduce<number>((max, raw) => {
+    const seq = Number((raw as { seq?: unknown })?.seq)
+    return Number.isFinite(seq) && seq > max ? seq : max
+  }, sinceSeq)
 
   const eventTypes: Record<string, number> = {}
   const samples: Record<string, string> = {}
@@ -314,6 +366,7 @@ export async function runOnce(
 
   return {
     sessionId,
+    lastSeq,
     text: extractText(events),
     status: statuses.at(-1) ?? 'unknown',
     tools: extractTools(events),

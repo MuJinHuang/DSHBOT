@@ -62,12 +62,21 @@ const { agent } = await ctx.sessionController.agents.createSession({ cwd })
 - `src/host/api.ts`：`POST /dshbot/api/rooms/:id/messages` 会落盘用户消息、跑 agent、落盘回复
 - `src/client/page.tsx`：消息流（人右 / Bot 左）+ 底部输入框
 
+## 续聊（已补）
+
+房间记住 `sessionId` 与**事件水位 `sessionSeq`**：
+
+- 有会话就 `sessionController.agents.resolveAgent(sessionId)` 续上（活着直接用，不在就冷恢复）；
+- 续聊时事件流含整段历史，所以只处理 `seq > sessionSeq` 的事件，否则历史回复会被拼进本轮。
+
+实测三轮：**记住 7391 → 报出 7391 → 算出 14782**，每轮只返回新内容。
+
 ## 还没做
 
-- **工具动作没展示**：现在只显示对话文本。事件里已经有工具调用，M0-4 把它折叠成一行。
-- **没有持久会话**：每次说话新建一个 agent，Bot 不记得上一轮。要延续对话得复用 sessionId。
+- ~~工具动作没展示~~ → M0-4 已做
+- ~~没有持久会话~~ → 已补
 - **成员面板还是空的**：Bot 尚未作为房间成员建模。
 
 ## 下一步
 
-M0-4：把 `tool/*` 事件映射成折叠的工具动作行，补上「看它干活」这一半。
+M0-5：@ 提及触发。在此之前 M0-3/M0-4 已闭环。

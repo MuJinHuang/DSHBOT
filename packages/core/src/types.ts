@@ -93,6 +93,10 @@ export interface Room {
   shared: string
   /** 主持人 Bot 的 id，负责分派。 */
   hostBotId?: string
+  /** 房间绑定的 DSH 会话 id；有它才能让 Bot 记住上一轮。 */
+  sessionId?: string
+  /** 会话事件的读取水位：只处理比它更新的事件，避免把历史回复又拼一遍。 */
+  sessionSeq?: number
   tokensUsed: number
   createdAt: string
   updatedAt: string

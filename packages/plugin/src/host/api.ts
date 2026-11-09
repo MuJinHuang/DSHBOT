@@ -199,7 +199,13 @@ export function createHandler(ctx: AgentContext) {
           saveDb(before)
 
           try {
-            const outcome = await runOnce(ctx, text, room.shared !== '' ? room.shared : process.cwd())
+            const outcome = await runOnce(
+              ctx,
+              text,
+              room.shared !== '' ? room.shared : process.cwd(),
+              room.sessionId,
+              room.sessionSeq ?? 0
+            )
             const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
 
             // 工具调用排在人话之后、回复之前，形成一个完整回合
@@ -216,6 +222,9 @@ export function createHandler(ctx: AgentContext) {
             const done = after.rooms.find((r) => r.id === roomId)
             if (done !== undefined) {
               done.status = 'created'
+              // 记住会话与水位，下一句话才接得上，也不会重复历史
+              done.sessionId = outcome.sessionId
+              done.sessionSeq = outcome.lastSeq
               done.updatedAt = nowIso()
             }
             saveDb(after)
