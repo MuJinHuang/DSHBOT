@@ -1,6 +1,6 @@
 import { createElement as h, useCallback, useEffect, useState } from 'react'
 import type { Member, Message, Room } from '@dshbot/core'
-import { createRoom, listMessages, listRooms, say, setRoomState } from './api'
+import { addMember, createRoom, listMessages, listRooms, say, setRoomState } from './api'
 
 /**
  * 房间页。
@@ -220,7 +220,7 @@ function CreateForm(props: {
 }
 
 /** 工具动作：默认折叠成一行，点开看参数与输出。 */
-function ToolRow(props: { message: Message }) {
+function ToolRow(props: { message: Message; member?: Member }) {
   const [open, setOpen] = useState(false)
   const payload = (props.message.payload ?? {}) as {
     name?: string
@@ -233,6 +233,13 @@ function ToolRow(props: { message: Message }) {
   return h(
     'div',
     { style: { marginBottom: 8 } },
+    props.member !== undefined
+      ? h(
+          'div',
+          { style: { fontSize: 10.5, color: MUTED, marginBottom: 2, marginLeft: 2 } },
+          `${props.member.avatar} ${props.member.name}`
+        )
+      : null,
     h(
       'button',
       {
@@ -299,11 +306,11 @@ function ToolRow(props: { message: Message }) {
   )
 }
 
-/** 一条消息。 */
-function MessageRow(props: { message: Message }) {
-  const { message } = props
+/** 一条消息。bot 消息带发送者名字，方便分清楚是谁说的。 */
+function MessageRow(props: { message: Message; member?: Member }) {
+  const { message, member } = props
 
-  if (message.kind === 'tool') return h(ToolRow, { message })
+  if (message.kind === 'tool') return h(ToolRow, { message, member })
 
   const mine = message.kind === 'human'
   return h(
@@ -317,18 +324,28 @@ function MessageRow(props: { message: Message }) {
     },
     h(
       'div',
-      {
-        style: {
-          maxWidth: '78%',
-          padding: '8px 12px',
-          borderRadius: 10,
-          fontSize: 13,
-          lineHeight: 1.6,
-          whiteSpace: 'pre-wrap',
-          background: mine ? 'rgba(47,111,237,0.14)' : 'rgba(128,128,128,0.12)'
-        }
-      },
-      message.text
+      { style: { maxWidth: '78%' } },
+      !mine && member !== undefined
+        ? h(
+            'div',
+            { style: { fontSize: 10.5, color: MUTED, marginBottom: 2, marginLeft: 2 } },
+            `${member.avatar} ${member.name}`
+          )
+        : null,
+      h(
+        'div',
+        {
+          style: {
+            padding: '8px 12px',
+            borderRadius: 10,
+            fontSize: 13,
+            lineHeight: 1.6,
+            whiteSpace: 'pre-wrap',
+            background: mine ? 'rgba(47,111,237,0.14)' : 'rgba(128,128,128,0.12)'
+          }
+        },
+        message.text
+      )
     )
   )
 }
@@ -459,7 +476,13 @@ function RoomDetail(props: {
       messages.length === 0
         ? h('div', { style: { textAlign: 'center', color: MUTED, fontSize: 12, padding: '24px 0' } },
             '还没有消息。在下面说一句，Bot 就会接活。')
-        : messages.map((m) => h(MessageRow, { key: m.id, message: m })),
+        : messages.map((m) =>
+            h(MessageRow, {
+              key: m.id,
+              message: m,
+              member: (room.members ?? []).find((x) => x.botId === m.botId)
+            })
+          ),
       sending
         ? h('div', { style: { color: MUTED, fontSize: 12, padding: '4px 2px' } }, 'Bot 正在处理…')
         : null
@@ -613,8 +636,7 @@ export function RoomsPage() {
   )
 
   // 暂停 / 恢复 / 归档 / 仅@：改完把房间对象换掉
-  const changeState = useCallback(
-    async (action: 'pause' | 'resume' | 'archive' | 'unarchive' | 'toggleMentionOnly') => {
+  const changeState = useCallback(    async (action: 'pause' | 'resume' | 'archive' | 'unarchive' | 'toggleMentionOnly') => {
       if (selectedId === null) return
       try {
         const updated = await setRoomState(selectedId, action)
@@ -622,6 +644,21 @@ export function RoomsPage() {
         setSendError(null)
       } catch (err) {
         setSendError(err instanceof Error ? err.message : '操作失败')
+      }
+    },
+    [selectedId]
+  )
+
+  // 拉一只 Bot 进房间
+  const addBot = useCallback(
+    async (name: string) => {
+      if (selectedId === null) return
+      try {
+        const result = await addMember(selectedId, { name })
+        setRooms((list) => list.map((r) => (r.id === result.room.id ? result.room : r)))
+        setSendError(null)
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : '拉人失败')
       }
     },
     [selectedId]
@@ -747,24 +784,121 @@ export function RoomsPage() {
     ),
 
     // 右：成员
-    h(
-      'div',
-      {
-        style: {
-          width: 220,
-          flexShrink: 0,
-          padding: 12,
-          boxSizing: 'border-box',
-          overflow: 'auto'
-        }
-      },
-      h(SectionTitle, {}, `成员${selected === null ? '' : `（${selected.members?.length ?? 0}）`}`),
-      selected === null || (selected.members?.length ?? 0) === 0
-        ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '暂无 Bot')
-        : selected.members.map((m) => h(MemberCard, { key: m.botId, member: m })),
-      h('div', { style: { marginTop: 12, fontSize: 11, color: 'rgba(128,128,128,0.55)' } },
-        '状态灯：空闲 / 思考中 / 操作中 / 排队 / 出错')
-    )
+    h(MemberPanel, { room: selected, onAdd: (name: string) => void addBot(name) })
+  )
+}
+
+/** 右侧成员面板：成员卡 + 拉人入口。 */
+function MemberPanel(props: { room: Room | null; onAdd: (name: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const members = props.room?.members ?? []
+
+  const submit = () => {
+    const value = name.trim()
+    if (value === '') return
+    setName('')
+    setOpen(false)
+    props.onAdd(value)
+  }
+
+  return h(
+    'div',
+    { style: { width: 220, flexShrink: 0, padding: 12, boxSizing: 'border-box', overflow: 'auto' } },
+    h(SectionTitle, {}, `成员（${members.length}）`),
+
+    members.length === 0
+      ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '暂无 Bot')
+      : members.map((m) => h(MemberCard, { key: m.botId, member: m })),
+
+    props.room === null
+      ? null
+      : open
+        ? h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 } },
+            h('input', {
+              autoFocus: true,
+              value: name,
+              placeholder: 'Bot 名字，如「老周」',
+              onChange: (e: { target: { value: string } }) => setName(e.target.value),
+              onKeyDown: (e: { key: string }) => {
+                if (e.key === 'Enter') submit()
+                if (e.key === 'Escape') setOpen(false)
+              },
+              style: {
+                padding: '6px 8px',
+                borderRadius: 6,
+                border: LINE,
+                background: 'transparent',
+                color: 'inherit',
+                fontSize: 12,
+                fontFamily: 'inherit'
+              }
+            }),
+            h(
+              'div',
+              { style: { display: 'flex', gap: 6 } },
+              h(
+                'button',
+                {
+                  onClick: submit,
+                  style: {
+                    flex: 1,
+                    padding: '5px 0',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: '#2f6fed',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer'
+                  }
+                },
+                '加入'
+              ),
+              h(
+                'button',
+                {
+                  onClick: () => setOpen(false),
+                  style: {
+                    flex: 1,
+                    padding: '5px 0',
+                    borderRadius: 6,
+                    border: LINE,
+                    background: 'transparent',
+                    color: 'inherit',
+                    fontSize: 12,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer'
+                  }
+                },
+                '取消'
+              )
+            )
+          )
+        : h(
+            'button',
+            {
+              onClick: () => setOpen(true),
+              style: {
+                width: '100%',
+                marginTop: 4,
+                padding: '6px 0',
+                borderRadius: 6,
+                border: LINE,
+                background: 'transparent',
+                color: 'inherit',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                cursor: 'pointer'
+              }
+            },
+            '＋ 拉一个 Bot'
+          ),
+
+    h('div', { style: { marginTop: 12, fontSize: 11, color: 'rgba(128,128,128,0.55)' } },
+      '状态灯：空闲 / 思考中 / 操作中 / 排队 / 出错')
   )
 }
 

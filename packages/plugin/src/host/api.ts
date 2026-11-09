@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { newId, nowIso } from '@dshbot/core'
-import type { Message, Room } from '@dshbot/core'
+import type { Member, Message, Room } from '@dshbot/core'
 import { runOnce } from './agent.js'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, saveDb } from './store.js'
@@ -92,6 +92,32 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
 /** 造一条消息。 */
 function makeMessage(roomId: string, kind: Message['kind'], from: string, text: string): Message {
   return { id: newId('msg'), roomId, kind, from, text, createdAt: nowIso() }
+}
+
+/**
+ * 决定这条消息该由谁接。
+ *
+ * 优先级：@ 到谁就是谁 → 只有一只 Bot 就是它 → 有总管就是总管 → 否则第一只。
+ *
+ * @param room - 房间
+ * @param mentions - 文本里抽出来的 @ 名字
+ * @returns 要跑的成员，可能多个
+ */
+function resolveTargets(room: Room, mentions: string[]): Member[] {
+  const members = room.members ?? []
+  if (members.length === 0) return []
+
+  if (mentions.length > 0) {
+    const matched = members.filter(
+      (m) => mentions.includes(m.name) || mentions.includes(m.botId)
+    )
+    if (matched.length > 0) return matched
+  }
+
+  if (members.length === 1) return members
+  const host = members.find((m) => m.role === 'host')
+  // 多个 Bot 又没总管、又没 @ 谁：不抢话，谁都不接
+  return host === undefined ? [] : [host]
 }
 
 /** 「全体停手」的暗号。 */
@@ -197,6 +223,43 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
+      // ---- /rooms/:id/members（拉人进来）----
+      if (parts.length === 3 && parts[2] === 'members' && method === 'POST') {
+        const input = (await readJson(req)) as {
+          name?: unknown
+          role?: unknown
+          avatar?: unknown
+        }
+        if (!isNonEmptyString(input.name)) {
+          send(res, 400, { error: 'name 不能为空' })
+          return
+        }
+        const name = input.name.trim()
+        const db3 = loadDb()
+        const host = db3.rooms.find((r) => r.id === roomId)
+        if (host === undefined) {
+          send(res, 404, { error: '房间不存在' })
+          return
+        }
+        if ((host.members ?? []).some((m) => m.name === name)) {
+          send(res, 409, { error: `房间里已经有「${name}」了` })
+          return
+        }
+        const member: Member = {
+          botId: newId('bot'),
+          name,
+          role: input.role === 'host' ? 'host' : 'worker',
+          avatar: isNonEmptyString(input.avatar) ? input.avatar : '🤖',
+          status: 'idle',
+          tokensUsed: 0
+        }
+        host.members = [...(host.members ?? []), member]
+        host.updatedAt = nowIso()
+        saveDb(db3)
+        send(res, 201, { member, room: host })
+        return
+      }
+
       // ---- /rooms/:id/state（暂停 / 恢复 / 归档 / 仅@响应）----
       if (parts.length === 3 && parts[2] === 'state' && method === 'POST') {
         const input = (await readJson(req)) as { action?: unknown }
@@ -263,97 +326,134 @@ export function createHandler(ctx: AgentContext) {
           }
 
           const mentions = parseMentions(text)
-          // M1 PR1：房间里只有一只 Bot，所有话都给它；多 Bot 的 @ 路由在 PR2
-          const member = room.members?.[0]
+          const targets = resolveTargets(room, mentions)
           const userMessage = makeMessage(roomId, 'human', 'human', text)
-          if (member !== undefined) userMessage.botId = member.botId
+          if (targets.length === 1) userMessage.botId = targets[0]?.botId
 
           // 先落盘用户消息；若房间设了「仅 @ 响应」且没 @ 到人，就不惊动 Bot
           const before = loadDb()
           before.messages.push(userMessage)
-          const target = before.rooms.find((r) => r.id === roomId)
-          if (target !== undefined) {
-            target.status = room.mentionOnly === true && mentions.length === 0 ? 'created' : 'working'
-            if (target.members[0] !== undefined && target.status === 'working') {
-              target.members[0].status = 'thinking'
-              target.members[0].activity = '处理中'
+          const pending = before.rooms.find((r) => r.id === roomId)
+          const willRun = room.mentionOnly === true && mentions.length === 0 ? false : targets.length > 0
+          if (pending !== undefined) {
+            pending.status = willRun ? 'working' : 'created'
+            for (const target of targets) {
+              const seat = pending.members?.find((m) => m.botId === target.botId)
+              if (seat !== undefined && willRun) {
+                seat.status = 'thinking'
+                seat.activity = '处理中'
+              }
             }
-            target.updatedAt = nowIso()
+            pending.updatedAt = nowIso()
           }
           saveDb(before)
 
-          if (room.mentionOnly === true && mentions.length === 0) {
-            send(res, 200, { messages: [userMessage], skipped: true })
-            return
-          }
-
-          try {
-            const outcome = await runOnce(
-              ctx,
-              text,
-              room.shared !== '' ? room.shared : process.cwd(),
-              member?.sessionId ?? room.sessionId,
-              member?.sessionSeq ?? room.sessionSeq ?? 0
-            )
-            const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
-
-            // 工具调用排在人话之后、回复之前，形成一个完整回合
-            const toolMessages: Message[] = outcome.tools.map((tool) => {
-              const message = makeMessage(roomId, 'tool', 'bot', `${tool.name} ${summarizeArgs(tool.input)}`)
-              message.payload = { name: tool.name, input: tool.input, output: tool.output }
-              if (member !== undefined) message.botId = member.botId
-              return message
-            })
-
-            const botMessage = makeMessage(roomId, 'bot', 'bot', reply)
-            if (member !== undefined) botMessage.botId = member.botId
-
-            const after = loadDb()
-            after.messages.push(...toolMessages, botMessage)
-            const done = after.rooms.find((r) => r.id === roomId)
-            if (done !== undefined) {
-              done.status = 'created'
-              // 记住会话与水位，下一句话才接得上，也不会重复历史
-              done.sessionId = outcome.sessionId
-              done.sessionSeq = outcome.lastSeq
-              done.tokensUsed = (done.tokensUsed ?? 0) + outcome.usage.total
-              const owner = done.members?.[0]
-              if (owner !== undefined) {
-                owner.sessionId = outcome.sessionId
-                owner.sessionSeq = outcome.lastSeq
-                owner.tokensUsed = (owner.tokensUsed ?? 0) + outcome.usage.total
-                owner.status = 'idle'
-                owner.activity = undefined
-              }
-              done.updatedAt = nowIso()
+          if (!willRun) {
+            // 没 @ 到人：留一句提示，别让人以为消息丢了
+            const hint =
+              mentions.length === 0 && targets.length === 0
+                ? makeMessage(
+                    roomId,
+                    'system',
+                    'system',
+                    '房间里有多只 Bot，没有 @ 谁，这条只记录。用 @名字 指给某一只，或拉一只总管进来。'
+                  )
+                : undefined
+            if (hint !== undefined) {
+              const db4 = loadDb()
+              db4.messages.push(hint)
+              saveDb(db4)
             }
-            saveDb(after)
-
             send(res, 200, {
-              messages: [userMessage, ...toolMessages, botMessage],
-              sessionId: outcome.sessionId,
-              usage: outcome.usage
-            })
-            return
-          } catch (error) {
-            const failed = loadDb()
-            const back = failed.rooms.find((r) => r.id === roomId)
-            if (back !== undefined) {
-              back.status = 'created'
-              const owner = back.members?.[0]
-              if (owner !== undefined) {
-                owner.status = 'error'
-                owner.activity = '上一轮失败'
-              }
-              back.updatedAt = nowIso()
-            }
-            saveDb(failed)
-            send(res, 500, {
-              error: error instanceof Error ? error.message : '执行失败',
-              messages: [userMessage]
+              messages: hint === undefined ? [userMessage] : [userMessage, hint],
+              skipped: true
             })
             return
           }
+
+          // 多个目标依次跑；并行留给 M1-4 的调度器
+          const produced: Message[] = [userMessage]
+          let failed = false
+
+          for (const target of targets) {
+            try {
+              const outcome = await runOnce(
+                ctx,
+                text,
+                room.shared !== '' ? room.shared : process.cwd(),
+                target.sessionId,
+                target.sessionSeq ?? 0
+              )
+              const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
+
+              const toolMessages: Message[] = outcome.tools.map((tool) => {
+                const message = makeMessage(
+                  roomId,
+                  'tool',
+                  target.botId,
+                  `${tool.name} ${summarizeArgs(tool.input)}`
+                )
+                message.payload = { name: tool.name, input: tool.input, output: tool.output }
+                message.botId = target.botId
+                return message
+              })
+
+              const botMessage = makeMessage(roomId, 'bot', target.botId, reply)
+              botMessage.botId = target.botId
+
+              const after = loadDb()
+              after.messages.push(...toolMessages, botMessage)
+              const done = after.rooms.find((r) => r.id === roomId)
+              if (done !== undefined) {
+                done.status = 'created'
+                done.tokensUsed = (done.tokensUsed ?? 0) + outcome.usage.total
+                const seat = done.members?.find((m) => m.botId === target.botId)
+                if (seat !== undefined) {
+                  // 每个 Bot 记自己的会话与水位，互不干扰
+                  seat.sessionId = outcome.sessionId
+                  seat.sessionSeq = outcome.lastSeq
+                  seat.tokensUsed = (seat.tokensUsed ?? 0) + outcome.usage.total
+                  seat.status = 'idle'
+                  seat.activity = undefined
+                }
+                done.updatedAt = nowIso()
+              }
+              saveDb(after)
+
+              produced.push(...toolMessages, botMessage)
+            } catch (error) {
+              failed = true
+              const note = makeMessage(
+                roomId,
+                'system',
+                'system',
+                `${target.name} 这一轮失败了：${error instanceof Error ? error.message : '未知错误'}`
+              )
+              note.botId = target.botId
+              const broken = loadDb()
+              broken.messages.push(note)
+              const seat = broken.rooms
+                .find((r) => r.id === roomId)
+                ?.members?.find((m) => m.botId === target.botId)
+              if (seat !== undefined) {
+                seat.status = 'error'
+                seat.activity = '上一轮失败'
+              }
+              saveDb(broken)
+              produced.push(note)
+            }
+          }
+
+          const finish = loadDb()
+          const finished = finish.rooms.find((r) => r.id === roomId)
+          if (finished !== undefined) {
+            finished.status = 'created'
+            finished.updatedAt = nowIso()
+          }
+          saveDb(finish)
+
+          send(res, failed ? 207 : 200, { messages: produced })
+          return
         }
 
         send(res, 405, { error: 'method not allowed' })

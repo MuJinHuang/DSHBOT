@@ -5,7 +5,7 @@
  * web 下解析成 `/dshbot/api/...`，Electron 下解析成 `dsh://app/dshbot/api/...`，
  * 由主进程的协议处理转发给本地 webserver。这是 DSH 自家插件的既有约定。
  */
-import type { Message, Room } from '@dshbot/core'
+import type { Member, Message, Room } from '@dshbot/core'
 
 const BASE = 'dshbot/api'
 
@@ -77,4 +77,15 @@ export async function setRoomState(
     body: JSON.stringify({ action })
   })
   return data.room
+}
+
+/** 拉一只新 Bot 进房间。 */
+export async function addMember(
+  roomId: string,
+  input: { name: string; role?: 'host' | 'worker' }
+): Promise<{ member: Member; room: Room }> {
+  return request<{ member: Member; room: Room }>(`rooms/${roomId}/members`, {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
 }
