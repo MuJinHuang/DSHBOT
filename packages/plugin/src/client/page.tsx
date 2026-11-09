@@ -1,5 +1,5 @@
 import { createElement as h, useCallback, useEffect, useState } from 'react'
-import type { Message, Room } from '@dshbot/core'
+import type { Member, Message, Room } from '@dshbot/core'
 import { createRoom, listMessages, listRooms, say, setRoomState } from './api'
 
 /**
@@ -17,6 +17,32 @@ function formatTokens(value: number): string {
   if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + 'M'
   if (value >= 1_000) return (value / 1_000).toFixed(1) + 'k'
   return String(value)
+}
+
+/** 状态灯颜色。 */
+const STATUS_COLOR: Record<string, string> = {
+  idle: '#9aa0a6',
+  queued: '#b0b0b0',
+  thinking: '#2f6fed',
+  acting: '#2f6fed',
+  waiting: '#e8a33d',
+  waiting_approval: '#e8a33d',
+  waiting_human: '#e8a33d',
+  done: '#2f9e44',
+  error: '#e5484d'
+}
+
+/** 状态灯文案。 */
+const STATUS_TEXT: Record<string, string> = {
+  idle: '空闲',
+  queued: '排队中',
+  thinking: '思考中',
+  acting: '操作中',
+  waiting: '等待',
+  waiting_approval: '等审批',
+  waiting_human: '等人',
+  done: '完成',
+  error: '出错'
 }
 
 function SectionTitle(props: { children?: React.ReactNode }) {
@@ -732,11 +758,51 @@ export function RoomsPage() {
           overflow: 'auto'
         }
       },
-      h(SectionTitle, {}, '成员'),
-      h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '暂无 Bot'),
+      h(SectionTitle, {}, `成员${selected === null ? '' : `（${selected.members?.length ?? 0}）`}`),
+      selected === null || (selected.members?.length ?? 0) === 0
+        ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '暂无 Bot')
+        : selected.members.map((m) => h(MemberCard, { key: m.botId, member: m })),
       h('div', { style: { marginTop: 12, fontSize: 11, color: 'rgba(128,128,128,0.55)' } },
-        '每个 Bot 会在这里显示状态灯：空闲 / 思考中 / 操作中 / 等审批')
+        '状态灯：空闲 / 思考中 / 操作中 / 排队 / 出错')
     )
+  )
+}
+
+/** 成员卡：头像、名字、状态灯、活动、花费。 */
+function MemberCard(props: { member: Member }) {
+  const { member } = props
+  const dot = STATUS_COLOR[member.status] ?? '#999'
+  return h(
+    'div',
+    {
+      style: {
+        padding: '8px 10px',
+        marginBottom: 8,
+        borderRadius: 8,
+        border: LINE,
+        background: 'rgba(128,128,128,0.04)'
+      }
+    },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 } },
+      h('span', { style: { fontSize: 15 } }, member.avatar),
+      h('span', { style: { fontSize: 13 } }, member.name),
+      member.role === 'host'
+        ? h('span', { style: { fontSize: 10, color: MUTED, border: LINE, borderRadius: 3, padding: '0 3px' } }, '总管')
+        : null
+    ),
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: MUTED } },
+      h('span', {
+        style: { width: 6, height: 6, borderRadius: 3, background: dot, display: 'inline-block' }
+      }),
+      h('span', {}, STATUS_TEXT[member.status] ?? member.status),
+      member.activity ? h('span', { style: { opacity: 0.7 } }, '· ' + member.activity) : null
+    ),
+    h('div', { style: { fontSize: 10.5, color: 'rgba(128,128,128,0.6)', marginTop: 4 } },
+      '已用 ' + formatTokens(member.tokensUsed ?? 0))
   )
 }
 

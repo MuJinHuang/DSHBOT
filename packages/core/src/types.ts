@@ -66,6 +66,27 @@ export interface BotCard {
   budget: Budget
 }
 
+/** 房间成员：一只 Bot 在这个房间里的身份与状态。 */
+export interface Member {
+  /** 稳定身份，跨房间不变。 */
+  botId: string
+  /** 显示名，如「小柯」。 */
+  name: string
+  /** 总管负责分派，worker 负责干活。 */
+  role: 'host' | 'worker'
+  avatar: string
+  /** 该 Bot 在本房间的会话；有它才记得住自己干过什么。 */
+  sessionId?: string
+  /** 该会话的事件水位。 */
+  sessionSeq?: number
+  /** 状态灯。 */
+  status: BotStatus | 'queued'
+  /** 一句话说明"当前在干什么"。 */
+  activity?: string
+  /** 本 Bot 在本房间累计的 token。 */
+  tokensUsed: number
+}
+
 /** Bot 在房间里的工位：独立工作区 + 进程 + 浏览器 profile。 */
 export interface Seat {
   botId: string
@@ -93,6 +114,8 @@ export interface Room {
   shared: string
   /** 主持人 Bot 的 id，负责分派。 */
   hostBotId?: string
+  /** 房间成员。老数据为空数组，读的时候会惰性迁移。 */
+  members: Member[]
   /** 房间绑定的 DSH 会话 id；有它才能让 Bot 记住上一轮。 */
   sessionId?: string
   /** 会话事件的读取水位：只处理比它更新的事件，避免把历史回复又拼一遍。 */
@@ -111,6 +134,8 @@ export interface Message {
   kind: MessageKind
   /** 发送者：`human` 或 Bot 的 id。 */
   from: string
+  /** 这条消息属于哪个 Bot（它说的，或说给它的）。 */
+  botId?: string
   text: string
   /** 结构化附加信息：工具调用参数、产物引用、审批选项等。 */
   payload?: Record<string, unknown>

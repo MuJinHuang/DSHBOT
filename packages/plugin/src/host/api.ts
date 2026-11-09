@@ -73,6 +73,17 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
     budget: { perRun: 200_000, perBot: 800_000, perRoom: 1_500_000 },
     shared: '',
     tokensUsed: 0,
+    // 新房间默认拉一只执行 Bot，M1 之后可以再拉人
+    members: [
+      {
+        botId: 'bot_default',
+        name: '小柯',
+        role: 'worker',
+        avatar: '🧑‍💻',
+        status: 'idle',
+        tokensUsed: 0
+      }
+    ],
     createdAt: now,
     updatedAt: now
   }
@@ -252,7 +263,10 @@ export function createHandler(ctx: AgentContext) {
           }
 
           const mentions = parseMentions(text)
+          // M1 PR1：房间里只有一只 Bot，所有话都给它；多 Bot 的 @ 路由在 PR2
+          const member = room.members?.[0]
           const userMessage = makeMessage(roomId, 'human', 'human', text)
+          if (member !== undefined) userMessage.botId = member.botId
 
           // 先落盘用户消息；若房间设了「仅 @ 响应」且没 @ 到人，就不惊动 Bot
           const before = loadDb()
@@ -260,6 +274,10 @@ export function createHandler(ctx: AgentContext) {
           const target = before.rooms.find((r) => r.id === roomId)
           if (target !== undefined) {
             target.status = room.mentionOnly === true && mentions.length === 0 ? 'created' : 'working'
+            if (target.members[0] !== undefined && target.status === 'working') {
+              target.members[0].status = 'thinking'
+              target.members[0].activity = '处理中'
+            }
             target.updatedAt = nowIso()
           }
           saveDb(before)
@@ -274,8 +292,8 @@ export function createHandler(ctx: AgentContext) {
               ctx,
               text,
               room.shared !== '' ? room.shared : process.cwd(),
-              room.sessionId,
-              room.sessionSeq ?? 0
+              member?.sessionId ?? room.sessionId,
+              member?.sessionSeq ?? room.sessionSeq ?? 0
             )
             const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
 
@@ -283,10 +301,12 @@ export function createHandler(ctx: AgentContext) {
             const toolMessages: Message[] = outcome.tools.map((tool) => {
               const message = makeMessage(roomId, 'tool', 'bot', `${tool.name} ${summarizeArgs(tool.input)}`)
               message.payload = { name: tool.name, input: tool.input, output: tool.output }
+              if (member !== undefined) message.botId = member.botId
               return message
             })
 
             const botMessage = makeMessage(roomId, 'bot', 'bot', reply)
+            if (member !== undefined) botMessage.botId = member.botId
 
             const after = loadDb()
             after.messages.push(...toolMessages, botMessage)
@@ -297,6 +317,14 @@ export function createHandler(ctx: AgentContext) {
               done.sessionId = outcome.sessionId
               done.sessionSeq = outcome.lastSeq
               done.tokensUsed = (done.tokensUsed ?? 0) + outcome.usage.total
+              const owner = done.members?.[0]
+              if (owner !== undefined) {
+                owner.sessionId = outcome.sessionId
+                owner.sessionSeq = outcome.lastSeq
+                owner.tokensUsed = (owner.tokensUsed ?? 0) + outcome.usage.total
+                owner.status = 'idle'
+                owner.activity = undefined
+              }
               done.updatedAt = nowIso()
             }
             saveDb(after)
@@ -312,6 +340,11 @@ export function createHandler(ctx: AgentContext) {
             const back = failed.rooms.find((r) => r.id === roomId)
             if (back !== undefined) {
               back.status = 'created'
+              const owner = back.members?.[0]
+              if (owner !== undefined) {
+                owner.status = 'error'
+                owner.activity = '上一轮失败'
+              }
               back.updatedAt = nowIso()
             }
             saveDb(failed)

@@ -28,14 +28,42 @@ export function dataFile(): string {
   return join(dshHome(), 'dshbot', 'rooms.json')
 }
 
+/**
+ * 惰性迁移：老房间没有 members，补一只默认 Bot 接管它原来的会话。
+ *
+ * 不做独立迁移脚本——数据量小，读的时候顺手补最省事。
+ *
+ * @param room - 读出来的房间
+ * @returns 补过 members 的房间
+ */
+function migrateRoom(room: Room): Room {
+  if (Array.isArray(room.members) && room.members.length > 0) return room
+  return {
+    ...room,
+    members: [
+      {
+        botId: 'bot_default',
+        name: '小柯',
+        role: 'worker',
+        avatar: '🧑‍💻',
+        ...(room.sessionId === undefined ? {} : { sessionId: room.sessionId }),
+        ...(room.sessionSeq === undefined ? {} : { sessionSeq: room.sessionSeq }),
+        status: 'idle',
+        tokensUsed: room.tokensUsed ?? 0
+      }
+    ]
+  }
+}
+
 /** 读整个库。文件缺失或损坏时退回空库，不抛错。 */
 export function loadDb(): Database {
   try {
     const raw = readFileSync(dataFile(), 'utf8')
     const parsed = JSON.parse(raw) as Partial<Database>
+    const rooms = Array.isArray(parsed.rooms) ? parsed.rooms : []
     return {
       version: 1,
-      rooms: Array.isArray(parsed.rooms) ? parsed.rooms : [],
+      rooms: rooms.map(migrateRoom),
       messages: Array.isArray(parsed.messages) ? parsed.messages : []
     }
   } catch {
