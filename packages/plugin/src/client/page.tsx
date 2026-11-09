@@ -306,11 +306,50 @@ function ToolRow(props: { message: Message; member?: Member }) {
   )
 }
 
+/** 任务卡：总管派给某只 Bot 的活。 */
+function AssignmentRow(props: { message: Message }) {
+  const payload = (props.message.payload ?? {}) as {
+    title?: string
+    from?: string
+    to?: string
+    status?: string
+  }
+  const status = payload.status ?? 'running'
+  const label =
+    status === 'done' ? '完成' : status === 'failed' ? '失败' : status === 'running' ? '进行中' : status
+  const color = status === 'done' ? '#2f9e44' : status === 'failed' ? '#e5484d' : '#2f6fed'
+
+  return h(
+    'div',
+    {
+      style: {
+        border: LINE,
+        borderRadius: 8,
+        padding: '8px 12px',
+        marginBottom: 8,
+        background: 'rgba(47,111,237,0.05)',
+        fontSize: 12,
+        lineHeight: 1.6
+      }
+    },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 } },
+      h('span', { style: { fontSize: 11, color: '#2f6fed' } }, '任务卡'),
+      h('span', { style: { color: MUTED, fontSize: 11 } },
+        `${payload.from ?? ''} → ${payload.to ?? ''}`),
+      h('span', { style: { marginLeft: 'auto', color, fontSize: 11 } }, label)
+    ),
+    h('div', {}, payload.title ?? props.message.text)
+  )
+}
+
 /** 一条消息。bot 消息带发送者名字，方便分清楚是谁说的。 */
 function MessageRow(props: { message: Message; member?: Member }) {
   const { message, member } = props
 
   if (message.kind === 'tool') return h(ToolRow, { message, member })
+  if (message.kind === 'assignment') return h(AssignmentRow, { message })
 
   const mine = message.kind === 'human'
   return h(

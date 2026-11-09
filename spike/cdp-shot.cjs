@@ -29,7 +29,7 @@ const child = spawn(
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-extensions',
-    '--remote-debugging-port=' + PORT,
+    '--window-size=1440,900', '--remote-debugging-port=' + PORT,
     '--user-data-dir=' + profile,
     'about:blank'
   ],
