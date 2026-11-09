@@ -11,8 +11,8 @@ import type { HostContext } from './host/types.js'
 /** Cordis 插件名。 */
 export const name = 'dshbot'
 
-/** 需要 web 服务器、Agent 服务与会话存储；缺任何一个都不加载。 */
-export const inject: string[] = ['webServer', 'agents', 'sessions']
+/** 需要 web 服务器、Agent 服务与会话控制器；缺任何一个都不加载。 */
+export const inject: string[] = ['webServer', 'agents', 'sessions', 'sessionController']
 
 /**
  * 挂载入口。

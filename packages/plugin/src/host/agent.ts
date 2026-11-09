@@ -49,13 +49,23 @@ export interface AgentContext {
   agents: {
     /** UI 同款建房入口，自动带 preset 与默认模型；可能不存在。 */
     createSession?(options: {
-      sessionId: string
       cwd: string
+      sessionId?: string
       agentPreset?: string
     }): Promise<{ agent?: AgentHandle; agentPreset?: string }>
     /** 底层入口，必须自己给全 agentOptions。 */
     create(options: unknown): Promise<{ agent?: AgentHandle; dispose?: () => void }>
     get(id: string): AgentHandle | undefined
+  }
+  /** UI 同款的会话控制器，`agents.createSession` 在这里面。 */
+  sessionController?: {
+    agents?: {
+      createSession(request: {
+        cwd: string
+        agentPreset?: string
+        sessionId?: string
+      }): Promise<{ agent?: AgentHandle; agentPreset?: string }>
+    }
   }
   sessions?: { get(id: string): SessionLike | undefined }
 }
@@ -70,18 +80,18 @@ function userMessage(text: string): unknown {
   }
 }
 
-/** 从任意形状的事件里尽量抠出助手文本。 */
+/** 从事件流里抠出助手文本。只认 role === 'assistant' 的消息，别把用户输入拼进来。 */
 function extractText(events: unknown[]): string {
   const parts: string[] = []
   for (const raw of events) {
     if (raw === null || typeof raw !== 'object') continue
     const event = raw as Record<string, unknown>
     const data = (event.data ?? {}) as Record<string, unknown>
-    const message = (data.message ?? event.message ?? {}) as Record<string, unknown>
-    const content = (message.content ?? data.content ?? event.content) as unknown
+    const message = (data.message ?? event.message) as Record<string, unknown> | undefined
+    if (message === undefined) continue
+    if (message.role !== 'assistant') continue
+    const content = message.content as unknown
     if (!Array.isArray(content)) continue
-    const role = String(message.role ?? event.role ?? '')
-    if (role !== '' && role !== 'assistant') continue
     for (const part of content) {
       const p = part as Record<string, unknown>
       if (p.type === 'text' && typeof p.text === 'string') parts.push(p.text)
@@ -103,19 +113,25 @@ export async function runOnce(
   cwd: string
 ): Promise<RunOutcome> {
   const started = Date.now()
-  const sessionId = newId('sess')
+  const requestedId = newId('sess')
 
-  // 首选 UI 同款入口：createSession 会带上 Agent preset 与默认模型。
-  // 它由别的插件挂到 registry 上，不是每个组合都有，所以要回退。
-  // 只用 agents.create() 会缺 preset，系统提示词里的 {{model}} 填不上，
-  // 回合会以 "prompt variable ... has no value" 秒失败。
-  const created =
-    typeof ctx.agents.createSession === 'function'
-      ? await ctx.agents.createSession({ sessionId, cwd })
-      : await ctx.agents.create({ sessionId, agentOptions: { cwd } })
+  // 首选 UI 同款路径：sessionController.agents.createSession 会带上 Agent preset
+  // 与默认模型。只用 agents.create() 会缺 preset，系统提示词里的 {{model}}
+  // 填不上，回合会以 "prompt variable ... has no value" 秒失败。
+  //
+  // 注意：走 controller 时**不传 sessionId**，让它自己 mint。传一个自制 id 会
+  // 进 reuse/claim 分支，实测会跑出十几个重复回合。
+  const viaController = ctx.sessionController?.agents?.createSession
+  const created = viaController
+    ? await ctx.sessionController!.agents!.createSession({ cwd })
+    : typeof ctx.agents.createSession === 'function'
+      ? await ctx.agents.createSession({ cwd })
+      : await ctx.agents.create({ sessionId: requestedId, agentOptions: { cwd } })
 
   // 返回值是 { agent, agentPreset }，真正的句柄在 agent 上
   const agent = (created.agent ?? created) as AgentHandle
+  // 真正落盘的会话 id 由宿主决定
+  const sessionId = agent.id ?? requestedId
 
   // 句柄形状随宿主版本变，先探清楚再调用，免得报一句没用的 "not a function"
   const ownKeys = Object.keys(agent)
@@ -200,17 +216,31 @@ export async function runOnce(
     }
     return []
   }
-  // 事件以 { log: [...] } 的形式推过来，先摊平
-  const flattened: unknown[] = []
+  // 每帧推的是**整段日志快照**（{ log: [...] }），不是增量。
+  // 直接摊平会把同一事件重复十几遍，所以按 seq 去重后再排序。
+  const bySeq = new Map<number, unknown>()
+  const loose: unknown[] = []
   for (const item of captured) {
     const log = (item as { log?: unknown })?.log
-    if (Array.isArray(log)) flattened.push(...log)
-    else flattened.push(item)
+    if (!Array.isArray(log)) {
+      loose.push(item)
+      continue
+    }
+    for (const event of log) {
+      const seq = Number((event as { seq?: unknown })?.seq)
+      if (Number.isFinite(seq)) bySeq.set(seq, event)
+      else loose.push(event)
+    }
   }
+  const events: unknown[] = [
+    ...[...bySeq.entries()].sort((a, b) => a[0] - b[0]).map(([, event]) => event),
+    ...loose
+  ]
 
-  const session = ctx.sessions?.get(sessionId)
-  const fromSession = readEvents(session)
-  const events = flattened.length > 0 ? flattened : fromSession
+  if (events.length === 0) {
+    const session = ctx.sessions?.get(sessionId)
+    events.push(...readEvents(session))
+  }
 
   const eventTypes: Record<string, number> = {}
   for (const raw of events) {

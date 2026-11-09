@@ -1,63 +1,73 @@
-# M0-3 进展与卡点
+# M0-3 完成记录：Bot 在房间里说话
 
-## 已经打通的
+> 状态：**已跑通**。截图见 [m0-3-rooms.png](m0-3-rooms.png)。
 
-插件在宿主进程内可以：
+## 结论
 
-1. `ctx.agents.create({ sessionId, agentOptions: { cwd } })` 起一个 agent；
-2. 拿到句柄 `{ agent, dispose }`，用 `agent.followup(message)` 投一条用户消息；
-3. 订阅 `agent/status` 观察 `running → idle`；
-4. 订阅 `session/event` 拿到完整事件流。
+插件能在宿主进程内起一个 agent，投一条用户消息，等它跑完，把回复写回房间消息流。页面里发一句话，Bot 1–2 秒回话。
 
-投进去的消息确实进了 session：
+## 关键突破：`sessionController`
 
-```json
-{
-  "type": "agent/inbox/spliced",
-  "seq": 3,
-  "data": {
-    "target": "next-turn",
-    "inserted": [{ "role": "user", "content": [{ "type": "text", "text": "..." }], "source": "user-rpc" }]
+之前卡在 `prompt variable "{{model}}" has no value`——用 `agents.create()` 起出来的 agent 没有 Agent preset，系统提示词模板填不上。
+
+`agents.createSession` 在插件上下文里不存在，全局搜定义也搜不到，因为它在**另一个服务的内部对象**上：
+
+```js
+// dsh-api-session-controller
+var SessionController = class extends TypertRemoteService {
+  constructor(ctx, config, internals) {
+    super(ctx, 'sessionController', { namespace: 'session' })   // ← 服务键
+    this.agents = new ApiSessionAgentController(ctx)            // ← createSession 在这
+    ...
   }
 }
 ```
 
-事件流的形状也摸清了——**这正是 M0-4 消息流要的东西**：
+所以插件这样拿：
 
-```json
-{ "log": [ { "type": "turn/start", "seq": 4, "time": 1794157796265, "data": { "turn": 1 } },
-           { "type": "step/start", "seq": 7, "data": { "turn": 1, "step": 1 } },
-           { "type": "turn/end",   "seq": 9, "data": { "turn": 1, "reason": { ... } } } ] }
+```js
+inject: ['webServer', 'agents', 'sessions', 'sessionController']
+
+const { agent } = await ctx.sessionController.agents.createSession({ cwd })
 ```
 
-## 卡在哪
+这条路和界面点「新会话」走的是同一段代码，preset、模型、系统提示词全部由宿主配好。
 
-回合 32 毫秒就结束了，`turn/end` 带着：
+## 三个坑（都已修）
 
-```
-prompt variable "{{model}}" has no value for this assembly (section "deployment:persona-prefix")
-```
+1. **不要自己传 sessionId**
+   传给 `createSession({ sessionId })` 会进 `claim`/reuse 分支。实测一个请求跑出 15 个重复回合。
+   现在改成不传，让宿主自己 mint（`session-<uuid>`），一轮就是一轮。
 
-原因：`agents.create()` 只给了 `cwd`，没给 **Agent preset** 和**模型选择**，系统提示词模板里的 `{{model}}` 没有值，整轮直接失败。
+2. **事件帧是整段日志快照，不是增量**
+   每帧推 `{ log: [全部事件] }`。把所有帧摊平，同一事件会重复十几遍，`turn/start` 数出来 15。
+   现在按 `seq` 去重再排序。
 
-UI 走的是 `agents.createSession({ cwd, agentPreset })`，它会自动补齐 preset 与默认模型。但：
+3. **提取助手文本必须严格判 role**
+   一开始 `role === ''` 也放行，结果把用户消息和运行时上下文全拼进了回复。
+   现在只认 `message.role === 'assistant'`。
 
-- `ctx.agents.createSession` 在插件上下文里**不存在**；
-- 全局搜 `createSession(` 的定义也没搜到（0 命中）。
+## 实测数据
 
-说明它要么是别的插件在运行时挂到 service 上的方法，要么走了不同的服务键。
+| 指标 | 值 |
+|---|---|
+| 一句话到回话 | 1.3–1.8 秒 |
+| 事件数（一轮） | 18 |
+| 单轮事件序列 | `permission/preset` → `sandbox/mode` → `approval/policy` → `agent/inbox/spliced` → `turn/start` → `step/start` → `system/message` → `user/message` → `request/header` → `request/context` → `assistant/message` → `step/end` → `turn/end` |
 
-## 下一步的两条路
+## 现在的实现
 
-| 方案 | 做法 | 风险 |
-|---|---|---|
-| A 找挂载点 | 确认哪个插件给 agents 加了 `createSession`，改成 `inject` 那个服务 | 要摸清一层间接，但最稳 |
-| B 自己拼 options | 用 `agents.create({ sessionId, agentOptions: { preset, model: { provider, model } } })`，从 `ctx.agentDefaultModel` 读默认模型 | 字段名靠猜，可能要试几轮 |
+- `src/host/agent.ts`：`runOnce(ctx, prompt, cwd)` → `{ sessionId, text, status, eventTypes }`
+  三级回退：`sessionController.agents.createSession` → `agents.createSession` → `agents.create`
+- `src/host/api.ts`：`POST /dshbot/api/rooms/:id/messages` 会落盘用户消息、跑 agent、落盘回复
+- `src/client/page.tsx`：消息流（人右 / Bot 左）+ 底部输入框
 
-倾向 A：UI 已经验证过的路径，不该重造。
+## 还没做
 
-## 当前代码状态
+- **工具动作没展示**：现在只显示对话文本。事件里已经有工具调用，M0-4 把它折叠成一行。
+- **没有持久会话**：每次说话新建一个 agent，Bot 不记得上一轮。要延续对话得复用 sessionId。
+- **成员面板还是空的**：Bot 尚未作为房间成员建模。
 
-`src/host/agent.ts` 是可用状态：优先 `createSession`，没有就回退 `create()`，不会抛异常把接口打挂。`POST /dshbot/api/_probe` 是这条链路的探针，M0-3 完成后删掉。
+## 下一步
 
-房间的建房与列表不受影响。
+M0-4：把 `tool/*` 事件映射成折叠的工具动作行，补上「看它干活」这一半。

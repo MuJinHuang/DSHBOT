@@ -1,12 +1,12 @@
 import { createElement as h, useCallback, useEffect, useState } from 'react'
-import type { Room } from '@dshbot/core'
-import { createRoom, listRooms } from './api'
+import type { Message, Room } from '@dshbot/core'
+import { createRoom, listMessages, listRooms, say } from './api'
 
 /**
  * 房间页。
  *
- * M0-1 范围：能建房、能列出来、能看详情。
- * 消息流、成员状态灯、Bot 执行在后续里程碑接。
+ * M0-3 范围：建房、列房间、在房间里说话并看到 Bot 回话。
+ * 工具动作折叠、状态灯、审批在后续里程碑接。
  */
 
 const MUTED = 'rgba(128,128,128,0.72)'
@@ -186,23 +186,69 @@ function CreateForm(props: {
   )
 }
 
-/** 房间详情。 */
-function RoomDetail(props: { room: Room }) {
-  const { room } = props
+/** 一条消息。 */
+function MessageRow(props: { message: Message }) {
+  const { message } = props
+  const mine = message.kind === 'human'
   return h(
     'div',
-    { style: { maxWidth: 620 } },
+    {
+      style: {
+        display: 'flex',
+        justifyContent: mine ? 'flex-end' : 'flex-start',
+        marginBottom: 10
+      }
+    },
+    h(
+      'div',
+      {
+        style: {
+          maxWidth: '78%',
+          padding: '8px 12px',
+          borderRadius: 10,
+          fontSize: 13,
+          lineHeight: 1.6,
+          whiteSpace: 'pre-wrap',
+          background: mine ? 'rgba(47,111,237,0.14)' : 'rgba(128,128,128,0.12)'
+        }
+      },
+      message.text
+    )
+  )
+}
+
+/** 房间详情：目标 + 验收 + 消息流 + 输入框。 */
+function RoomDetail(props: {
+  room: Room
+  messages: Message[]
+  sending: boolean
+  error: string | null
+  onSend: (text: string) => void
+}) {
+  const { room, messages, sending, error } = props
+  const [draft, setDraft] = useState('')
+
+  const submit = () => {
+    const text = draft.trim()
+    if (text === '' || sending) return
+    setDraft('')
+    props.onSend(text)
+  }
+
+  return h(
+    'div',
+    { style: { maxWidth: 680, display: 'flex', flexDirection: 'column', height: '100%' } },
     h('div', { style: { display: 'flex', alignItems: 'center', marginBottom: 6 } },
       h('div', { style: { fontSize: 17 } }, room.name),
       h(Badge, {}, STATUS_LABEL[room.status] ?? room.status)
     ),
-    h('div', { style: { fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: 20 } },
+    h('div', { style: { fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: 16 } },
       room.goal),
 
     h(SectionTitle, { key: 'a' }, '验收标准'),
     h(
       'ul',
-      { style: { margin: '0 0 20px', paddingLeft: 18, fontSize: 13, lineHeight: 1.9 } },
+      { style: { margin: '0 0 18px', paddingLeft: 18, fontSize: 13, lineHeight: 1.8 } },
       ...room.acceptance.map((item, index) => h('li', { key: index }, item))
     ),
 
@@ -211,18 +257,68 @@ function RoomDetail(props: { room: Room }) {
       'div',
       {
         style: {
+          flex: 1,
+          minHeight: 120,
+          overflow: 'auto',
           border: LINE,
           borderRadius: 8,
-          padding: 24,
-          textAlign: 'center',
-          fontSize: 12,
-          color: MUTED,
-          lineHeight: 1.8
+          padding: 12,
+          marginBottom: 10
         }
       },
-      '房间已建好，还没有 Bot 加入。',
-      h('br'),
-      'M0-3 会把第一个 Bot 接进来，在这里说话、看它干活。'
+      messages.length === 0
+        ? h('div', { style: { textAlign: 'center', color: MUTED, fontSize: 12, padding: '24px 0' } },
+            '还没有消息。在下面说一句，Bot 就会接活。')
+        : messages.map((m) => h(MessageRow, { key: m.id, message: m })),
+      sending
+        ? h('div', { style: { color: MUTED, fontSize: 12, padding: '4px 2px' } }, 'Bot 正在处理…')
+        : null
+    ),
+
+    error
+      ? h('div', { style: { color: '#e5484d', fontSize: 12, marginBottom: 8 } }, error)
+      : null,
+
+    h(
+      'div',
+      { style: { display: 'flex', gap: 8 } },
+      h('input', {
+        value: draft,
+        disabled: sending,
+        placeholder: '说点什么，比如：把登录页改成暗色',
+        onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
+        onKeyDown: (e: { key: string }) => {
+          if (e.key === 'Enter') submit()
+        },
+        style: {
+          flex: 1,
+          padding: '9px 12px',
+          borderRadius: 8,
+          border: LINE,
+          background: 'transparent',
+          color: 'inherit',
+          fontSize: 13,
+          fontFamily: 'inherit'
+        }
+      }),
+      h(
+        'button',
+        {
+          onClick: submit,
+          disabled: sending || draft.trim() === '',
+          style: {
+            padding: '9px 18px',
+            borderRadius: 8,
+            border: 'none',
+            background: '#2f6fed',
+            color: '#fff',
+            fontSize: 13,
+            cursor: sending || draft.trim() === '' ? 'default' : 'pointer',
+            opacity: sending || draft.trim() === '' ? 0.5 : 1
+          }
+        },
+        sending ? '…' : '发送'
+      )
     )
   )
 }
@@ -233,6 +329,9 @@ export function RoomsPage() {
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -253,6 +352,53 @@ export function RoomsPage() {
   }, [refresh])
 
   const selected = rooms.find((room) => room.id === selectedId) ?? null
+
+  // 切房间时把消息读出来
+  useEffect(() => {
+    if (selectedId === null) {
+      setMessages([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const list = await listMessages(selectedId)
+        if (!cancelled) setMessages(list)
+      } catch {
+        if (!cancelled) setMessages([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId])
+
+  const send = useCallback(
+    async (text: string) => {
+      if (selectedId === null) return
+      setSending(true)
+      setSendError(null)
+      try {
+        const created = await say(selectedId, text)
+        setMessages((prev) => [
+          ...prev,
+          ...created.filter((m) => !prev.some((p) => p.id === m.id))
+        ])
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '发送失败'
+        setSendError(message)
+        // 失败时用户消息已经落盘，重新拉一次保持一致
+        try {
+          setMessages(await listMessages(selectedId))
+        } catch {
+          /* 忽略二次失败 */
+        }
+      } finally {
+        setSending(false)
+      }
+    },
+    [selectedId]
+  )
 
   return h(
     'div',
@@ -351,7 +497,13 @@ export function RoomsPage() {
               }
             })
           : selected
-            ? h(RoomDetail, { room: selected })
+            ? h(RoomDetail, {
+                room: selected,
+                messages,
+                sending,
+                error: sendError,
+                onSend: (text: string) => void send(text)
+              })
             : h(
                 'div',
                 { style: { display: 'grid', placeItems: 'center', height: '100%', color: MUTED } },

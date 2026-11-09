@@ -9,10 +9,10 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { newId, nowIso } from '@dshbot/core'
-import type { Room } from '@dshbot/core'
+import type { Message, Room } from '@dshbot/core'
 import { runOnce } from './agent.js'
 import type { AgentContext } from './agent.js'
-import { loadRooms, saveRooms } from './store.js'
+import { loadDb, messagesOf, saveDb } from './store.js'
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
@@ -78,6 +78,11 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
   }
 }
 
+/** 造一条消息。 */
+function makeMessage(roomId: string, kind: Message['kind'], from: string, text: string): Message {
+  return { id: newId('msg'), roomId, kind, from, text, createdAt: nowIso() }
+}
+
 /**
  * 造一个绑定 Host 上下文的处理器。
  *
@@ -86,16 +91,19 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
 export function createHandler(ctx: AgentContext) {
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://dshbot.local')
-    const path = url.pathname
+    const rest = url.pathname.startsWith(API_PREFIX) ? url.pathname.slice(API_PREFIX.length) : ''
+    const parts = rest.split('/').filter(Boolean)
+    const method = req.method ?? 'GET'
 
     try {
-      if (path === `${API_PREFIX}/health`) {
+      // ---- /health ----
+      if (parts.length === 1 && parts[0] === 'health') {
         send(res, 200, { ok: true })
         return
       }
 
-      // 探针：验证「起 agent → 投消息 → 拿回复」这条链路
-      if (path === `${API_PREFIX}/_probe` && req.method === 'POST') {
+      // ---- /_probe（开发探针）----
+      if (parts.length === 1 && parts[0] === '_probe' && method === 'POST') {
         const input = (await readJson(req)) as { prompt?: unknown }
         if (!isNonEmptyString(input.prompt)) {
           send(res, 400, { error: 'prompt 不能为空' })
@@ -106,24 +114,102 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
-      if (path === `${API_PREFIX}/rooms`) {
-        if (req.method === 'GET') {
-          send(res, 200, { rooms: loadRooms() })
+      // ---- /rooms ----
+      if (parts[0] !== 'rooms') {
+        send(res, 404, { error: 'not found' })
+        return
+      }
+
+      // ---- /rooms（列表 / 新建）----
+      if (parts.length === 1) {
+        if (method === 'GET') {
+          send(res, 200, { rooms: loadDb().rooms })
           return
         }
-        if (req.method === 'POST') {
+        if (method === 'POST') {
           const input = (await readJson(req)) as Record<string, unknown>
           const room = buildRoom(input)
           if ('error' in room) {
             send(res, 400, { error: room.error })
             return
           }
-          const rooms = loadRooms()
-          rooms.unshift(room)
-          saveRooms(rooms)
+          const db = loadDb()
+          db.rooms.unshift(room)
+          saveDb(db)
           send(res, 201, { room })
           return
         }
+        send(res, 405, { error: 'method not allowed' })
+        return
+      }
+
+      const roomId = parts[1] ?? ''
+      const db = loadDb()
+      const room = db.rooms.find((r) => r.id === roomId)
+      if (room === undefined) {
+        send(res, 404, { error: `房间不存在：${roomId}` })
+        return
+      }
+
+      // ---- /rooms/:id/messages（读 / 说）----
+      if (parts.length === 3 && parts[2] === 'messages') {
+        if (method === 'GET') {
+          send(res, 200, { messages: messagesOf(roomId) })
+          return
+        }
+
+        if (method === 'POST') {
+          const input = (await readJson(req)) as { text?: unknown }
+          if (!isNonEmptyString(input.text)) {
+            send(res, 400, { error: 'text 不能为空' })
+            return
+          }
+
+          const text = input.text.trim()
+          const userMessage = makeMessage(roomId, 'human', 'human', text)
+
+          // 先把用户消息落盘，再跑 agent —— 中途崩了也留得下
+          const before = loadDb()
+          before.messages.push(userMessage)
+          const target = before.rooms.find((r) => r.id === roomId)
+          if (target !== undefined) {
+            target.status = 'working'
+            target.updatedAt = nowIso()
+          }
+          saveDb(before)
+
+          try {
+            const outcome = await runOnce(ctx, text, room.shared !== '' ? room.shared : process.cwd())
+            const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
+            const botMessage = makeMessage(roomId, 'bot', 'bot', reply)
+
+            const after = loadDb()
+            after.messages.push(botMessage)
+            const done = after.rooms.find((r) => r.id === roomId)
+            if (done !== undefined) {
+              done.status = 'created'
+              done.updatedAt = nowIso()
+            }
+            saveDb(after)
+
+            send(res, 200, { messages: [userMessage, botMessage], sessionId: outcome.sessionId })
+            return
+          } catch (error) {
+            const failed = loadDb()
+            const back = failed.rooms.find((r) => r.id === roomId)
+            if (back !== undefined) {
+              back.status = 'created'
+              back.updatedAt = nowIso()
+            }
+            saveDb(failed)
+            send(res, 500, {
+              error: error instanceof Error ? error.message : '执行失败',
+              messages: [userMessage]
+            })
+            return
+          }
+        }
+
         send(res, 405, { error: 'method not allowed' })
         return
       }
