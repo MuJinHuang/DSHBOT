@@ -83,6 +83,26 @@ function makeMessage(roomId: string, kind: Message['kind'], from: string, text: 
   return { id: newId('msg'), roomId, kind, from, text, createdAt: nowIso() }
 }
 
+/** 把工具参数压成一行摘要，太长就截断。 */
+function summarizeArgs(raw: string): string {
+  if (raw === '') return ''
+  let text = raw.replace(/\s+/g, ' ').trim()
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    // 优先挑最能说明意图的字段
+    for (const key of ['command', 'description', 'path', 'file_path', 'pattern', 'query']) {
+      const value = parsed[key]
+      if (typeof value === 'string' && value.trim() !== '') {
+        text = value.replace(/\s+/g, ' ').trim()
+        break
+      }
+    }
+  } catch {
+    /* 不是 JSON 就用原文 */
+  }
+  return text.length > 80 ? text.slice(0, 80) + '…' : text
+}
+
 /**
  * 造一个绑定 Host 上下文的处理器。
  *
@@ -181,10 +201,18 @@ export function createHandler(ctx: AgentContext) {
           try {
             const outcome = await runOnce(ctx, text, room.shared !== '' ? room.shared : process.cwd())
             const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
+
+            // 工具调用排在人话之后、回复之前，形成一个完整回合
+            const toolMessages: Message[] = outcome.tools.map((tool) => {
+              const message = makeMessage(roomId, 'tool', 'bot', `${tool.name} ${summarizeArgs(tool.input)}`)
+              message.payload = { name: tool.name, input: tool.input, output: tool.output }
+              return message
+            })
+
             const botMessage = makeMessage(roomId, 'bot', 'bot', reply)
 
             const after = loadDb()
-            after.messages.push(botMessage)
+            after.messages.push(...toolMessages, botMessage)
             const done = after.rooms.find((r) => r.id === roomId)
             if (done !== undefined) {
               done.status = 'created'
@@ -192,7 +220,10 @@ export function createHandler(ctx: AgentContext) {
             }
             saveDb(after)
 
-            send(res, 200, { messages: [userMessage, botMessage], sessionId: outcome.sessionId })
+            send(res, 200, {
+              messages: [userMessage, ...toolMessages, botMessage],
+              sessionId: outcome.sessionId
+            })
             return
           } catch (error) {
             const failed = loadDb()

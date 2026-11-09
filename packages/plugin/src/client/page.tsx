@@ -186,9 +186,92 @@ function CreateForm(props: {
   )
 }
 
+/** 工具动作：默认折叠成一行，点开看参数与输出。 */
+function ToolRow(props: { message: Message }) {
+  const [open, setOpen] = useState(false)
+  const payload = (props.message.payload ?? {}) as {
+    name?: string
+    input?: string
+    output?: string
+  }
+  const output = payload.output ?? ''
+  const lines = output.split('\n').length
+
+  return h(
+    'div',
+    { style: { marginBottom: 8 } },
+    h(
+      'button',
+      {
+        onClick: () => setOpen((v) => !v),
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          width: '100%',
+          textAlign: 'left',
+          padding: '5px 10px',
+          borderRadius: 6,
+          border: LINE,
+          background: 'rgba(128,128,128,0.06)',
+          color: 'inherit',
+          fontSize: 12,
+          fontFamily: 'inherit',
+          cursor: 'pointer'
+        }
+      },
+      h('span', { style: { opacity: 0.6, width: 10 } }, open ? '▾' : '▸'),
+      h('code', { style: { color: '#2f6fed' } }, props.message.text),
+      h(
+        'span',
+        { style: { marginLeft: 'auto', color: MUTED, fontSize: 11 } },
+        output === '' ? '无输出' : `${lines} 行输出`
+      )
+    ),
+    open
+      ? h(
+          'div',
+          {
+            style: {
+              marginTop: 6,
+              marginLeft: 18,
+              padding: 10,
+              borderRadius: 6,
+              background: 'rgba(128,128,128,0.08)',
+              fontSize: 11.5,
+              lineHeight: 1.5
+            }
+          },
+          payload.input
+            ? h('div', { style: { marginBottom: 6 } },
+                h('div', { style: { color: MUTED, marginBottom: 2 } }, '参数'),
+                h('pre', { style: { margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' } }, payload.input))
+            : null,
+          h('div', { style: { color: MUTED, marginBottom: 2 } }, '输出'),
+          h(
+            'pre',
+            {
+              style: {
+                margin: 0,
+                maxHeight: 240,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all'
+              }
+            },
+            output === '' ? '（空）' : output
+          )
+        )
+      : null
+  )
+}
+
 /** 一条消息。 */
 function MessageRow(props: { message: Message }) {
   const { message } = props
+
+  if (message.kind === 'tool') return h(ToolRow, { message })
+
   const mine = message.kind === 'human'
   return h(
     'div',

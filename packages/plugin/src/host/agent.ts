@@ -14,21 +14,31 @@
 import { randomUUID } from 'node:crypto'
 import { newId } from '@dshbot/core'
 
+/** 一次工具调用。 */
+export interface ToolStep {
+  callId: string
+  name: string
+  /** 参数原文（JSON 字符串）。 */
+  input: string
+  /** 工具输出文本。 */
+  output: string
+}
+
 /** 跑一次的结果。 */
 export interface RunOutcome {
   sessionId: string
   text: string
   status: string
+  /** 这一轮用到的工具，按发生顺序。 */
+  tools: ToolStep[]
   /** 诊断用：事件类型统计。 */
   eventTypes: Record<string, number>
   /** 诊断用：句柄暴露了哪些键。 */
   handleKeys: string[]
   /** 诊断用：状态序列。 */
   statuses: string[]
-  /** 诊断用：实时捕获的事件类型。 */
-  capturedTypes: string[]
-  /** 诊断用：第一条原始事件。 */
-  sampleEvent: string
+  /** 诊断用：每种事件的第一条样本（截断）。 */
+  samples: Record<string, string>
   ms: number
 }
 
@@ -78,6 +88,52 @@ function userMessage(text: string): unknown {
     content: [{ type: 'text', text }],
     source: 'user-rpc'
   }
+}
+
+/** 从事件里抽出工具调用与结果，按 callId 配对。 */
+function extractTools(events: unknown[]): ToolStep[] {
+  const order: string[] = []
+  const byId = new Map<string, ToolStep>()
+
+  for (const raw of events) {
+    if (raw === null || typeof raw !== 'object') continue
+    const event = raw as Record<string, unknown>
+    const type = String(event.type ?? '')
+    const data = (event.data ?? {}) as Record<string, unknown>
+
+    if (type === 'tool/call') {
+      const callId = String(data.callId ?? '')
+      if (callId === '') continue
+      if (!byId.has(callId)) order.push(callId)
+      byId.set(callId, {
+        callId,
+        name: String(data.name ?? 'tool'),
+        input: String(data.arguments ?? ''),
+        output: ''
+      })
+      continue
+    }
+
+    if (type === 'tool/result') {
+      const message = (data.message ?? {}) as Record<string, unknown>
+      const callId = String(data.toolCallId ?? message.toolCallId ?? '')
+      if (callId === '') continue
+      const content = message.content
+      let output = ''
+      if (Array.isArray(content)) {
+        output = content
+          .map((part) => {
+            const p = part as Record<string, unknown>
+            return p.type === 'text' ? String(p.text ?? '') : ''
+          })
+          .join('')
+      }
+      const existing = byId.get(callId)
+      if (existing !== undefined) existing.output = output
+    }
+  }
+
+  return order.map((id) => byId.get(id)!).filter(Boolean)
 }
 
 /** 从事件流里抠出助手文本。只认 role === 'assistant' 的消息，别把用户输入拼进来。 */
@@ -243,26 +299,28 @@ export async function runOnce(
   }
 
   const eventTypes: Record<string, number> = {}
+  const samples: Record<string, string> = {}
   for (const raw of events) {
     const type = String((raw as { type?: unknown })?.type ?? 'unknown')
     eventTypes[type] = (eventTypes[type] ?? 0) + 1
+    if (samples[type] === undefined) {
+      try {
+        samples[type] = JSON.stringify(raw).slice(0, 700)
+      } catch {
+        samples[type] = 'unserializable'
+      }
+    }
   }
 
   return {
     sessionId,
     text: extractText(events),
     status: statuses.at(-1) ?? 'unknown',
+    tools: extractTools(events),
     eventTypes,
     handleKeys: Object.keys(agent),
     statuses,
-    capturedTypes: Object.keys(eventTypes),
-    sampleEvent: (() => {
-      try {
-        return JSON.stringify(events.slice(-2)).slice(0, 1200)
-      } catch {
-        return 'unserializable'
-      }
-    })(),
+    samples,
     ms: Date.now() - started
   }
 }
