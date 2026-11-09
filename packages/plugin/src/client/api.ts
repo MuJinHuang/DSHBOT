@@ -66,3 +66,15 @@ export async function say(roomId: string, text: string): Promise<Message[]> {
   })
   return data.messages ?? []
 }
+
+/** 房间状态动作：暂停 / 恢复 / 归档 / 仅@响应。 */
+export async function setRoomState(
+  roomId: string,
+  action: 'pause' | 'resume' | 'archive' | 'unarchive' | 'toggleMentionOnly'
+): Promise<Room> {
+  const data = await request<{ room: Room }>(`rooms/${roomId}/state`, {
+    method: 'POST',
+    body: JSON.stringify({ action })
+  })
+  return data.room
+}

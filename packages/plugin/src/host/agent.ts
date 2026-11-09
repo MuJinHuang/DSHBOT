@@ -24,6 +24,13 @@ export interface ToolStep {
   output: string
 }
 
+/** 一轮的 token 用量。 */
+export interface Usage {
+  input: number
+  output: number
+  total: number
+}
+
 /** 跑一次的结果。 */
 export interface RunOutcome {
   sessionId: string
@@ -33,6 +40,8 @@ export interface RunOutcome {
   status: string
   /** 这一轮用到的工具，按发生顺序。 */
   tools: ToolStep[]
+  /** 这一轮消耗的 token。 */
+  usage: Usage
   /** 诊断用：事件类型统计。 */
   eventTypes: Record<string, number>
   /** 诊断用：句柄暴露了哪些键。 */
@@ -92,6 +101,26 @@ function userMessage(text: string): unknown {
     content: [{ type: 'text', text }],
     source: 'user-rpc'
   }
+}
+
+/** 汇总事件里的 token 用量。 */
+function extractUsage(events: unknown[]): Usage {
+  let input = 0
+  let output = 0
+  let total = 0
+  for (const raw of events) {
+    if (raw === null || typeof raw !== 'object') continue
+    const event = raw as Record<string, unknown>
+    if (event.type !== 'assistant/message') continue
+    const data = (event.data ?? {}) as Record<string, unknown>
+    const usage = (data.usage ?? {}) as Record<string, unknown>
+    if (usage === undefined) continue
+    input += Number(usage.inputTokens ?? 0)
+    output += Number(usage.outputTokens ?? 0)
+    total += Number(usage.totalTokens ?? 0)
+  }
+  if (total === 0) total = input + output
+  return { input, output, total }
 }
 
 /** 从事件里抽出工具调用与结果，按 callId 配对。 */
@@ -370,6 +399,7 @@ export async function runOnce(
     text: extractText(events),
     status: statuses.at(-1) ?? 'unknown',
     tools: extractTools(events),
+    usage: extractUsage(events),
     eventTypes,
     handleKeys: Object.keys(agent),
     statuses,

@@ -1,6 +1,6 @@
 import { createElement as h, useCallback, useEffect, useState } from 'react'
 import type { Message, Room } from '@dshbot/core'
-import { createRoom, listMessages, listRooms, say } from './api'
+import { createRoom, listMessages, listRooms, say, setRoomState } from './api'
 
 /**
  * 房间页。
@@ -11,6 +11,13 @@ import { createRoom, listMessages, listRooms, say } from './api'
 
 const MUTED = 'rgba(128,128,128,0.72)'
 const LINE = '1px solid rgba(128,128,128,0.25)'
+
+/** 把 token 数压成 1.2k / 3.4M 这种。 */
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + 'M'
+  if (value >= 1_000) return (value / 1_000).toFixed(1) + 'k'
+  return String(value)
+}
 
 function SectionTitle(props: { children?: React.ReactNode }) {
   return h(
@@ -307,6 +314,7 @@ function RoomDetail(props: {
   sending: boolean
   error: string | null
   onSend: (text: string) => void
+  onState: (action: 'pause' | 'resume' | 'archive' | 'unarchive' | 'toggleMentionOnly') => void
 }) {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
@@ -318,15 +326,88 @@ function RoomDetail(props: {
     props.onSend(text)
   }
 
+  const paused = room.status === 'paused'
+  const archived = room.status === 'archived'
+  const mentionOnly = room.mentionOnly === true
+  const spent = room.tokensUsed ?? 0
+  const cap = room.budget.perRoom
+  const ratio = cap > 0 ? Math.min(spent / cap, 1) : 0
+
+  const actionButton = (label: string, action: string, onClick: () => void) =>
+    h(
+      'button',
+      {
+        key: action,
+        onClick,
+        style: {
+          padding: '4px 10px',
+          borderRadius: 6,
+          border: LINE,
+          background: 'transparent',
+          color: 'inherit',
+          fontSize: 11.5,
+          fontFamily: 'inherit',
+          cursor: 'pointer',
+          opacity: 0.85
+        }
+      },
+      label
+    )
+
   return h(
     'div',
     { style: { maxWidth: 680, display: 'flex', flexDirection: 'column', height: '100%' } },
-    h('div', { style: { display: 'flex', alignItems: 'center', marginBottom: 6 } },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
       h('div', { style: { fontSize: 17 } }, room.name),
-      h(Badge, {}, STATUS_LABEL[room.status] ?? room.status)
+      h(Badge, {}, STATUS_LABEL[room.status] ?? room.status),
+      h('div', { style: { flex: 1 } }),
+      paused
+        ? actionButton('恢复', 'resume', () => props.onState('resume'))
+        : archived
+          ? actionButton('取消归档', 'unarchive', () => props.onState('unarchive'))
+          : actionButton('暂停', 'pause', () => props.onState('pause')),
+      archived
+        ? null
+        : actionButton('归档', 'archive', () => props.onState('archive')),
+      actionButton(mentionOnly ? '仅 @ 响应：开' : '仅 @ 响应：关', 'mention', () =>
+        props.onState('toggleMentionOnly')
+      )
     ),
-    h('div', { style: { fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: 16 } },
+    h('div', { style: { fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: 10 } },
       room.goal),
+
+    // 成本条
+    h(
+      'div',
+      { style: { marginBottom: 16 } },
+      h(
+        'div',
+        {
+          style: {
+            height: 6,
+            borderRadius: 3,
+            background: 'rgba(128,128,128,0.18)',
+            overflow: 'hidden'
+          }
+        },
+        h('div', {
+          style: {
+            width: `${(ratio * 100).toFixed(1)}%`,
+            height: '100%',
+            background: ratio > 0.8 ? '#e5484d' : '#2f6fed',
+            transition: 'width .3s'
+          }
+        })
+      ),
+      h(
+        'div',
+        { style: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUTED, marginTop: 4 } },
+        h('span', {}, '已用 ' + formatTokens(spent)),
+        h('span', {}, '预算 ' + formatTokens(cap))
+      )
+    ),
 
     h(SectionTitle, { key: 'a' }, '验收标准'),
     h(
@@ -362,47 +443,62 @@ function RoomDetail(props: {
       ? h('div', { style: { color: '#e5484d', fontSize: 12, marginBottom: 8 } }, error)
       : null,
 
-    h(
-      'div',
-      { style: { display: 'flex', gap: 8 } },
-      h('input', {
-        value: draft,
-        disabled: sending,
-        placeholder: '说点什么，比如：把登录页改成暗色',
-        onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
-        onKeyDown: (e: { key: string }) => {
-          if (e.key === 'Enter') submit()
-        },
-        style: {
-          flex: 1,
-          padding: '9px 12px',
-          borderRadius: 8,
-          border: LINE,
-          background: 'transparent',
-          color: 'inherit',
-          fontSize: 13,
-          fontFamily: 'inherit'
-        }
-      }),
-      h(
-        'button',
-        {
-          onClick: submit,
-          disabled: sending || draft.trim() === '',
-          style: {
-            padding: '9px 18px',
-            borderRadius: 8,
-            border: 'none',
-            background: '#2f6fed',
-            color: '#fff',
-            fontSize: 13,
-            cursor: sending || draft.trim() === '' ? 'default' : 'pointer',
-            opacity: sending || draft.trim() === '' ? 0.5 : 1
-          }
-        },
-        sending ? '…' : '发送'
-      )
-    )
+    paused || archived
+      ? h(
+          'div',
+          {
+            style: {
+              fontSize: 12,
+              color: MUTED,
+              padding: '9px 12px',
+              borderRadius: 8,
+              border: LINE,
+              textAlign: 'center'
+            }
+          },
+          paused ? '房间已暂停，恢复后才能继续说话。' : '房间已归档，取消归档后才能继续说话。'
+        )
+      : h(
+          'div',
+          { style: { display: 'flex', gap: 8 } },
+          h('input', {
+            value: draft,
+            disabled: sending,
+            placeholder: '说点什么，比如：把登录页改成暗色',
+            onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
+            onKeyDown: (e: { key: string }) => {
+              if (e.key === 'Enter') submit()
+            },
+            style: {
+              flex: 1,
+              padding: '9px 12px',
+              borderRadius: 8,
+              border: LINE,
+              background: 'transparent',
+              color: 'inherit',
+              fontSize: 13,
+              fontFamily: 'inherit'
+            }
+          }),
+          h(
+            'button',
+            {
+              onClick: submit,
+              disabled: sending || draft.trim() === '',
+              style: {
+                padding: '9px 18px',
+                borderRadius: 8,
+                border: 'none',
+                background: '#2f6fed',
+                color: '#fff',
+                fontSize: 13,
+                cursor: sending || draft.trim() === '' ? 'default' : 'pointer',
+                opacity: sending || draft.trim() === '' ? 0.5 : 1
+              }
+            },
+            sending ? '…' : '发送'
+          )
+        )
   )
 }
 
@@ -467,6 +563,13 @@ export function RoomsPage() {
           ...prev,
           ...created.filter((m) => !prev.some((p) => p.id === m.id))
         ])
+        // 本轮花了 token，把房间对象刷新一下，成本条才动
+        try {
+          const list = await listRooms()
+          setRooms(list)
+        } catch {
+          /* 刷新失败不影响这轮结果 */
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : '发送失败'
         setSendError(message)
@@ -478,6 +581,21 @@ export function RoomsPage() {
         }
       } finally {
         setSending(false)
+      }
+    },
+    [selectedId]
+  )
+
+  // 暂停 / 恢复 / 归档 / 仅@：改完把房间对象换掉
+  const changeState = useCallback(
+    async (action: 'pause' | 'resume' | 'archive' | 'unarchive' | 'toggleMentionOnly') => {
+      if (selectedId === null) return
+      try {
+        const updated = await setRoomState(selectedId, action)
+        setRooms((list) => list.map((r) => (r.id === updated.id ? updated : r)))
+        setSendError(null)
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : '操作失败')
       }
     },
     [selectedId]
@@ -585,7 +703,9 @@ export function RoomsPage() {
                 messages,
                 sending,
                 error: sendError,
-                onSend: (text: string) => void send(text)
+                onSend: (text: string) => void send(text),
+                onState: (action: string) =>
+                  void changeState(action as Parameters<typeof changeState>[0])
               })
             : h(
                 'div',

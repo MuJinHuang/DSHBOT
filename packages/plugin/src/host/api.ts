@@ -83,6 +83,21 @@ function makeMessage(roomId: string, kind: Message['kind'], from: string, text: 
   return { id: newId('msg'), roomId, kind, from, text, createdAt: nowIso() }
 }
 
+/** 「全体停手」的暗号。 */
+const STOP_PATTERN = /@所有人\s*停|@all\s+stop/i
+
+/** 抽出 @ 提及的名字，`@所有人` 不算。 */
+function parseMentions(text: string): string[] {
+  const found: string[] = []
+  for (const match of text.matchAll(/@([^\s@，,。.:：]+)/g)) {
+    const name = match[1]
+    if (name === undefined) continue
+    if (name === '所有人' || name.toLowerCase() === 'all') continue
+    found.push(name)
+  }
+  return found
+}
+
 /** 把工具参数压成一行摘要，太长就截断。 */
 function summarizeArgs(raw: string): string {
   if (raw === '') return ''
@@ -171,6 +186,33 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
+      // ---- /rooms/:id/state（暂停 / 恢复 / 归档 / 仅@响应）----
+      if (parts.length === 3 && parts[2] === 'state' && method === 'POST') {
+        const input = (await readJson(req)) as { action?: unknown }
+        const action = String(input.action ?? '')
+        const db2 = loadDb()
+        const target = db2.rooms.find((r) => r.id === roomId)
+        if (target === undefined) {
+          send(res, 404, { error: '房间不存在' })
+          return
+        }
+
+        if (action === 'pause') target.status = 'paused'
+        else if (action === 'resume') target.status = 'created'
+        else if (action === 'archive') target.status = 'archived'
+        else if (action === 'unarchive') target.status = 'created'
+        else if (action === 'toggleMentionOnly') target.mentionOnly = !(target.mentionOnly ?? false)
+        else {
+          send(res, 400, { error: `未知动作：${action}` })
+          return
+        }
+
+        target.updatedAt = nowIso()
+        saveDb(db2)
+        send(res, 200, { room: target })
+        return
+      }
+
       // ---- /rooms/:id/messages（读 / 说）----
       if (parts.length === 3 && parts[2] === 'messages') {
         if (method === 'GET') {
@@ -185,18 +227,47 @@ export function createHandler(ctx: AgentContext) {
             return
           }
 
+          if (room.status === 'paused' || room.status === 'archived') {
+            send(res, 409, {
+              error: room.status === 'paused' ? '房间已暂停，先恢复再说话' : '房间已归档，先恢复再说话'
+            })
+            return
+          }
+
           const text = input.text.trim()
+
+          // 「@所有人 停」是全体暂停的暗号
+          if (STOP_PATTERN.test(text)) {
+            const db2 = loadDb()
+            const target = db2.rooms.find((r) => r.id === roomId)
+            if (target !== undefined) {
+              target.status = 'paused'
+              target.updatedAt = nowIso()
+            }
+            const note = makeMessage(roomId, 'system', 'system', '已暂停：所有 Bot 停手')
+            db2.messages.push(note)
+            saveDb(db2)
+            send(res, 200, { messages: [note] })
+            return
+          }
+
+          const mentions = parseMentions(text)
           const userMessage = makeMessage(roomId, 'human', 'human', text)
 
-          // 先把用户消息落盘，再跑 agent —— 中途崩了也留得下
+          // 先落盘用户消息；若房间设了「仅 @ 响应」且没 @ 到人，就不惊动 Bot
           const before = loadDb()
           before.messages.push(userMessage)
           const target = before.rooms.find((r) => r.id === roomId)
           if (target !== undefined) {
-            target.status = 'working'
+            target.status = room.mentionOnly === true && mentions.length === 0 ? 'created' : 'working'
             target.updatedAt = nowIso()
           }
           saveDb(before)
+
+          if (room.mentionOnly === true && mentions.length === 0) {
+            send(res, 200, { messages: [userMessage], skipped: true })
+            return
+          }
 
           try {
             const outcome = await runOnce(
@@ -225,13 +296,15 @@ export function createHandler(ctx: AgentContext) {
               // 记住会话与水位，下一句话才接得上，也不会重复历史
               done.sessionId = outcome.sessionId
               done.sessionSeq = outcome.lastSeq
+              done.tokensUsed = (done.tokensUsed ?? 0) + outcome.usage.total
               done.updatedAt = nowIso()
             }
             saveDb(after)
 
             send(res, 200, {
               messages: [userMessage, ...toolMessages, botMessage],
-              sessionId: outcome.sessionId
+              sessionId: outcome.sessionId,
+              usage: outcome.usage
             })
             return
           } catch (error) {

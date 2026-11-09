@@ -97,6 +97,8 @@ export interface Room {
   sessionId?: string
   /** 会话事件的读取水位：只处理比它更新的事件，避免把历史回复又拼一遍。 */
   sessionSeq?: number
+  /** 只响应 @ 提及：开着时，没 @ 到 Bot 的话只记录不回。 */
+  mentionOnly?: boolean
   tokensUsed: number
   createdAt: string
   updatedAt: string
