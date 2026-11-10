@@ -99,6 +99,14 @@ export async function deliver(roomId: string): Promise<Delivery> {
   return data.delivery
 }
 
+/** 停止当前这一轮。 */
+export async function stop(roomId: string): Promise<{ stopped: boolean }> {
+  return request<{ stopped: boolean }>(`rooms/${roomId}/stop`, {
+    method: 'POST',
+    body: '{}'
+  })
+}
+
 /** 接管 / 交还。 */
 export async function takeover(
   roomId: string,

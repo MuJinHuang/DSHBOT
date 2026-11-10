@@ -28,28 +28,38 @@ export function dataFile(): string {
   return join(dshHome(), 'dshbot', 'rooms.json')
 }
 
+/** 房间目录的根：每个房间在这里有自己的工作区。 */
+export function roomsRoot(): string {
+  return join(dshHome(), 'dshbot', 'rooms')
+}
+
 /**
- * 惰性迁移：老房间没有 members，补一只默认 Bot 接管它原来的会话。
+ * 惰性迁移：老房间没有 members，补一只默认 Bot 接管它原来的会话；
+ * 没有 workspaceDir 的，补一个默认工作区。
  *
  * 不做独立迁移脚本——数据量小，读的时候顺手补最省事。
  *
  * @param room - 读出来的房间
- * @returns 补过 members 的房间
+ * @returns 补过 members 与 workspaceDir 的房间
  */
 function migrateRoom(room: Room): Room {
-  if (Array.isArray(room.members) && room.members.length > 0) return room
+  const withWorkspace =
+    room.workspaceDir === undefined || room.workspaceDir === ''
+      ? { ...room, workspaceDir: join(roomsRoot(), room.id, 'work') }
+      : room
+  if (Array.isArray(withWorkspace.members) && withWorkspace.members.length > 0) return withWorkspace
   return {
-    ...room,
+    ...withWorkspace,
     members: [
       {
         botId: 'bot_default',
         name: '小柯',
         role: 'worker',
         avatar: '🧑‍💻',
-        ...(room.sessionId === undefined ? {} : { sessionId: room.sessionId }),
-        ...(room.sessionSeq === undefined ? {} : { sessionSeq: room.sessionSeq }),
+        ...(withWorkspace.sessionId === undefined ? {} : { sessionId: withWorkspace.sessionId }),
+        ...(withWorkspace.sessionSeq === undefined ? {} : { sessionSeq: withWorkspace.sessionSeq }),
         status: 'idle',
-        tokensUsed: room.tokensUsed ?? 0
+        tokensUsed: withWorkspace.tokensUsed ?? 0
       }
     ]
   }

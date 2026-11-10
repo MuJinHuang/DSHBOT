@@ -10,11 +10,21 @@
  * 4. 串行：同一房间一次只跑一轮，避免两个请求打架。
  */
 import { newId, nowIso } from '@dshbot/core'
-import type { Delivery, DeliveryCheck, Member, Message, Room } from '@dshbot/core'
+import {
+  extractFiles,
+  parseChecks,
+  parseGitStatus,
+  parseMentions,
+  resolveTargets,
+  summarizeArgs
+} from '@dshbot/core'
+import type { Delivery, Member, Message, Room } from '@dshbot/core'
 import { execFileSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { runOnce } from './agent.js'
 import type { AgentContext, RunOutcome } from './agent.js'
-import { loadDb, saveDb } from './store.js'
+import { loadDb, roomsRoot, saveDb } from './store.js'
 
 /** 上下文块里带多少条近期消息。 */
 const RECENT_LIMIT = 12
@@ -29,6 +39,82 @@ const DISPATCH_CONCURRENCY = 2
 
 /** 每个房间一条串行队列。 */
 const queues = new Map<string, Promise<unknown>>()
+
+/** 房间 → 当前活跃 run 的取消函数。用于「停止」。 */
+const activeCancels = new Map<string, Set<() => void>>()
+
+/**
+ * 登记一个可取消的 run。
+ *
+ * @param roomId - 房间
+ * @param agent - 正在跑的 agent 句柄
+ * @returns 注销函数，run 结束时调用
+ */
+function trackCancel(roomId: string, agent: { cancel?(cause?: unknown): void }): () => void {
+  const cancel = (): void => {
+    try {
+      agent.cancel?.({ reason: 'user-stop' })
+    } catch {
+      /* 宿主可能已经结束这一轮 */
+    }
+  }
+  const set = activeCancels.get(roomId) ?? new Set<() => void>()
+  set.add(cancel)
+  activeCancels.set(roomId, set)
+  return () => {
+    set.delete(cancel)
+    if (set.size === 0) activeCancels.delete(roomId)
+  }
+}
+
+/**
+ * 停掉这个房间正在跑的 run。
+ *
+ * @param roomId - 房间
+ * @returns 是否真的停到了东西
+ */
+export function cancelRoom(roomId: string): boolean {
+  const set = activeCancels.get(roomId)
+  if (set === undefined || set.size === 0) return false
+  for (const cancel of [...set]) cancel()
+  set.clear()
+  activeCancels.delete(roomId)
+  return true
+}
+
+/**
+ * 启动自愈：把上次被中断的残留状态复位。
+ *
+ * 跑到一半关掉 DSH，房间会永远显示「进行中」、成员停在「思考中」。
+ * 插件挂载时扫一遍，全部拉回 idle，并留一条系统消息说明。
+ *
+ * @returns 修了几个房间
+ */
+export function healInterruptedRuns(): number {
+  const db = loadDb()
+  let healed = 0
+
+  for (const room of db.rooms) {
+    const roomStuck = room.status === 'working'
+    const stuck = (room.members ?? []).filter(
+      (m) => m.status === 'thinking' || m.status === 'queued'
+    )
+    if (!roomStuck && stuck.length === 0) continue
+
+    healed += 1
+    if (roomStuck) room.status = 'created'
+    for (const member of stuck) {
+      member.status = 'idle'
+      member.activity = undefined
+    }
+    db.messages.push(
+      makeMessage(room.id, 'system', 'system', '上次执行被中断（DSH 重启或停止），状态已重置。')
+    )
+  }
+
+  if (healed > 0) saveDb(db)
+  return healed
+}
 
 /**
  * 把任务排到某个房间的队尾。
@@ -56,37 +142,23 @@ export function makeMessage(
   return { id: newId('msg'), roomId, kind, from, text, createdAt: nowIso() }
 }
 
-/** 抽出 @ 提及的名字，`@所有人` 不算。 */
-export function parseMentions(text: string): string[] {
-  const found: string[] = []
-  for (const match of text.matchAll(/@([^\s@，,。.:：]+)/g)) {
-    const name = match[1]
-    if (name === undefined) continue
-    if (name === '所有人' || name.toLowerCase() === 'all') continue
-    found.push(name)
-  }
-  return found
-}
-
 /**
- * 决定这条消息该由谁接。
+ * 房间的工作目录。
+ *
+ * 以前直接用 `process.cwd()`，等于 Bot 改哪个目录取决于 DSH 从哪启动——
+ * 桌面版可能是安装目录。现在每个房间有自己的 work/，老房间惰性补上。
  *
  * @param room - 房间
- * @param mentions - 文本里的 @ 名字
- * @returns 要跑的成员
+ * @returns 绝对路径
  */
-export function resolveTargets(room: Room, mentions: string[]): Member[] {
-  const members = room.members ?? []
-  if (members.length === 0) return []
-
-  if (mentions.length > 0) {
-    const matched = members.filter((m) => mentions.includes(m.name) || mentions.includes(m.botId))
-    if (matched.length > 0) return matched
+export function workspaceOf(room: Room): string {
+  const dir = room.workspaceDir ?? join(roomsRoot(), room.id, 'work')
+  try {
+    mkdirSync(dir, { recursive: true })
+  } catch {
+    /* 建不出来就让下游报错，别在这里吞掉 */
   }
-
-  if (members.length === 1) return members
-  const host = members.find((m) => m.role === 'host')
-  return host === undefined ? [] : [host]
+  return dir
 }
 
 /** 消息流里最近若干条，压成一行摘要。 */
@@ -175,15 +247,20 @@ async function runMember(
   }
   saveDb(started)
 
+  let untrack: (() => void) | undefined
+
   try {
     const room = started.rooms.find((r) => r.id === roomId)!
     const composed = buildContext(room, member, task)
     const outcome = await runOnce(
       ctx,
       composed,
-      room.shared !== '' ? room.shared : process.cwd(),
+      workspaceOf(room),
       member.sessionId,
-      member.sessionSeq ?? 0
+      member.sessionSeq ?? 0,
+      (agent) => {
+        untrack = trackCancel(roomId, agent)
+      }
     )
     const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
 
@@ -240,41 +317,9 @@ async function runMember(
     }
     saveDb(broken)
     return { messages: [note] }
+  } finally {
+    untrack?.()
   }
-}
-
-/** 把工具参数压成一行摘要。 */
-function summarizeArgs(raw: string): string {
-  if (raw === '') return ''
-  let text = raw.replace(/\s+/g, ' ').trim()
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    for (const key of ['command', 'description', 'path', 'file_path', 'pattern', 'query']) {
-      const value = parsed[key]
-      if (typeof value === 'string' && value.trim() !== '') {
-        text = value.replace(/\s+/g, ' ').trim()
-        break
-      }
-    }
-  } catch {
-    /* 不是 JSON 就用原文 */
-  }
-  return text.length > 80 ? text.slice(0, 80) + '…' : text
-}
-
-/** 从任务文本里抽出它可能碰的文件，用作软写锁声明。 */
-function extractFiles(text: string): string[] {
-  const found = new Set<string>()
-  for (const match of text.matchAll(/[A-Za-z0-9_@\-./\\]+\.[A-Za-z0-9]{1,6}\b/g)) {
-    const path = match[0]
-    const looksLikeFile =
-      path.includes('/') ||
-      path.includes('\\') ||
-      /\.(ts|tsx|js|jsx|json|md|css|html|py|yml|yaml|toml)$/i.test(path)
-    if (looksLikeFile) found.add(path.replaceAll('\\', '/'))
-    if (found.size >= 5) break
-  }
-  return [...found]
 }
 
 /** 限量并发跑一批任务，结果按原顺序返回，失败为 null。 */
@@ -311,75 +356,10 @@ function changedFiles(dir: string): string[] {
       encoding: 'utf8',
       timeout: 8000
     })
-    return out
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '')
-      // porcelain 是 "XY path"，前两位是状态，后面才是路径
-      .map((line) => line.slice(2).trim())
-      .filter((path) => path !== '')
-      .slice(0, 50)
+    return parseGitStatus(out)
   } catch {
     return []
   }
-}
-
-/** 把模型给的各种写法归一成三态。 */
-function normalizeVerdict(value: unknown): DeliveryCheck['verdict'] {
-  const text = String(value ?? '').toLowerCase()
-  if (text === 'pass' || text.includes('通过') || text === 'true') return 'pass'
-  if (text === 'fail' || text.includes('不通过') || text.includes('失败') || text === 'false') {
-    return 'fail'
-  }
-  return 'unsure'
-}
-
-/** 解析判定结果，三级容错，最后才落到"存疑"。 */
-function parseChecks(raw: string, points: string[]): DeliveryCheck[] {
-  // ① JSON 数组
-  const start = raw.indexOf('[')
-  const end = raw.lastIndexOf(']')
-  if (start >= 0 && end > start) {
-    try {
-      const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown
-      if (Array.isArray(parsed) && parsed.length >= points.length) {
-        return points.map((point, index) => {
-          const item = parsed[index] as Record<string, unknown> | undefined
-          return {
-            point,
-            verdict: normalizeVerdict(item?.verdict ?? item?.result),
-            reason: String(item?.reason ?? item?.why ?? '（没有给出理由）').slice(0, 300)
-          }
-        })
-      }
-    } catch {
-      /* 往下走 */
-    }
-  }
-
-  // ② 逐行匹配：每行里出现验收点开头几个字，再找 pass/fail
-  const lines = raw.split('\n')
-  const perLine: DeliveryCheck[] = []
-  for (const point of points) {
-    const hit = lines.find((line) => line.includes(point.slice(0, 6)))
-    if (hit === undefined) continue
-    perLine.push({
-      point,
-      verdict: normalizeVerdict(hit),
-      reason: hit.replace(/\s+/g, ' ').trim().slice(0, 300)
-    })
-  }
-  if (perLine.length === points.length && perLine.some((c) => c.verdict !== 'unsure')) {
-    return perLine
-  }
-
-  // ③ 兜底：全存疑，但把模型原话留一句，方便人工复核
-  const digest = raw.replace(/\s+/g, ' ').trim().slice(0, 200)
-  return points.map((point) => ({
-    point,
-    verdict: 'unsure' as const,
-    reason: digest === '' ? '模型没有给出判定' : `模型没有按格式判定：${digest}`
-  }))
 }
 
 /**
@@ -394,7 +374,7 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
   const room = db.rooms.find((r) => r.id === roomId)
   if (room === undefined) throw new Error(`房间不存在：${roomId}`)
 
-  const dir = room.shared !== '' ? room.shared : process.cwd()
+  const dir = workspaceOf(room)
   const files = changedFiles(dir)
   const recent = recentLines(roomId, 10).join('\n')
 

@@ -1,6 +1,16 @@
 import { createElement as h, useCallback, useEffect, useState } from 'react'
 import type { Delivery, Member, Message, Room } from '@dshbot/core'
-import { addMember, createRoom, deliver, listMessages, listRooms, say, setRoomState, takeover } from './api'
+import {
+  addMember,
+  createRoom,
+  deliver,
+  listMessages,
+  listRooms,
+  say,
+  setRoomState,
+  stop,
+  takeover
+} from './api'
 
 /**
  * 房间页。
@@ -450,6 +460,7 @@ function RoomDetail(props: {
   onState: (action: 'pause' | 'resume' | 'archive' | 'unarchive' | 'toggleMentionOnly') => void
   onDeliver: () => void
   onTakeover: (action: 'take' | 'return', note?: string) => void
+  onStop: () => void
 }) {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
@@ -711,24 +722,41 @@ function RoomDetail(props: {
               fontFamily: 'inherit'
             }
           }),
-          h(
-            'button',
-            {
-              onClick: submit,
-              disabled: sending || draft.trim() === '',
-              style: {
-                padding: '9px 18px',
-                borderRadius: 8,
-                border: 'none',
-                background: '#2f6fed',
-                color: '#fff',
-                fontSize: 13,
-                cursor: sending || draft.trim() === '' ? 'default' : 'pointer',
-                opacity: sending || draft.trim() === '' ? 0.5 : 1
-              }
-            },
-            sending ? '…' : '发送'
-          )
+          sending
+            ? h(
+                'button',
+                {
+                  onClick: () => props.onStop(),
+                  style: {
+                    padding: '9px 18px',
+                    borderRadius: 8,
+                    border: LINE,
+                    background: 'transparent',
+                    color: 'inherit',
+                    fontSize: 13,
+                    cursor: 'pointer'
+                  }
+                },
+                '停止'
+              )
+            : h(
+                'button',
+                {
+                  onClick: submit,
+                  disabled: draft.trim() === '',
+                  style: {
+                    padding: '9px 18px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#2f6fed',
+                    color: '#fff',
+                    fontSize: 13,
+                    cursor: draft.trim() === '' ? 'default' : 'pointer',
+                    opacity: draft.trim() === '' ? 0.5 : 1
+                  }
+                },
+                '发送'
+              )
         )
   )
 }
@@ -895,6 +923,20 @@ export function RoomsPage() {
     [selectedId]
   )
 
+  // 停止当前这一轮
+  const stopRun = useCallback(async () => {
+    if (selectedId === null) return
+    try {
+      await stop(selectedId)
+      setSending(false)
+      setMessages(await listMessages(selectedId))
+      const list = await listRooms()
+      setRooms(list)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '停止失败')
+    }
+  }, [selectedId])
+
   return h(
     'div',
     { style: { display: 'flex', height: '100%', minHeight: 0, fontFamily: 'inherit' } },
@@ -1003,7 +1045,8 @@ export function RoomsPage() {
                   void changeState(action as Parameters<typeof changeState>[0]),
                 onDeliver: () => void runDelivery(),
                 onTakeover: (action: 'take' | 'return', note?: string) =>
-                  void changeTakeover(action, note)
+                  void changeTakeover(action, note),
+                onStop: () => void stopRun()
               })
             : h(
                 'div',

@@ -53,12 +53,17 @@ export interface RunOutcome {
   ms: number
 }
 
-interface AgentHandle {
+/** agent 句柄：形状随宿主版本变，只声明用到的方法。 */
+export interface AgentHandle {
   id: string
   followup(message: unknown): void
   ctx?: { on?(event: string, listener: (payload: unknown) => void): () => void }
   on?(event: string, listener: (payload: unknown) => void): () => void
   status?: unknown
+  /** 中断当前回合。 */
+  cancel?(cause?: unknown): void
+  /** 有人取消时给的信号。 */
+  signal?: { aborted?: boolean }
 }
 
 interface SessionLike {
@@ -243,17 +248,20 @@ async function acquireAgent(
  * @param cwd - 工作目录
  * @param existingSessionId - 房间记住的会话 id，传了就续聊
  * @param sinceSeq - 只处理比这个序号更新的事件，用来跳过历史
+ * @param onAgent - 拿到句柄时回调一次，调用方可以借它注册"停止"
  */
 export async function runOnce(
   ctx: AgentContext,
   prompt: string,
   cwd: string,
   existingSessionId?: string,
-  sinceSeq = 0
+  sinceSeq = 0,
+  onAgent?: (agent: AgentHandle) => void
 ): Promise<RunOutcome> {
   const started = Date.now()
   const acquired = await acquireAgent(ctx, existingSessionId, cwd)
   const agent = acquired.agent
+  onAgent?.(agent)
   const sessionId = acquired.sessionId
 
   // 句柄形状随宿主版本变，先探清楚再调用，免得报一句没用的 "not a function"

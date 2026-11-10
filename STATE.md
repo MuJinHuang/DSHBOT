@@ -48,6 +48,16 @@ DSH 桌面端侧栏多了「🏠 房间」入口，点开是三栏页面：
 | M3 交付页 | ✅ 验收点三态 + 变更文件 + 花费，见 [spike/m3-delivery.png](spike/m3-delivery.png) |
 | M3 产物 / 熔断 | 🟡 变更清单有、版本链与硬熔断未做 |
 
+### 第一批改进（已完成）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 单元测试 | ✅ | `pnpm test`，21 个用例覆盖 parse/turn 的纯函数；首跑就抓到一个 `不通过` 被认成 pass 的真 bug |
+| 固定工作区 | ✅ | 每房间 `~/.dsh/dshbot/rooms/<id>/work`，建房即创建，老房间惰性补 |
+| 启动自愈 | ✅ | 插件挂载时把 working/thinking/queued 复位，并留系统消息；实测日志 `[dshbot] healed 1 interrupted room(s)` |
+| 可取消 | ✅ | `POST /rooms/:id/stop` + 发送中的「停止」按钮 |
+| Markdown 渲染 | ⬜ | 还没做 |
+
 ## 3. 代码地图
 
 ```

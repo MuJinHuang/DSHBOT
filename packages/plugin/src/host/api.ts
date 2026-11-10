@@ -10,11 +10,13 @@
  * 注意：路由不做鉴权，只监听回环地址；本地单用户场景够用。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { newId, nowIso } from '@dshbot/core'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { newId, nowIso, parseMentions } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
-import { loadDb, messagesOf, saveDb } from './store.js'
-import { deliverRoom, handleRoomMessage, makeMessage, parseMentions } from './turn.js'
+import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
+import { cancelRoom, deliverRoom, handleRoomMessage, makeMessage } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
@@ -68,8 +70,16 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
   if (acceptance.length === 0) return { error: '至少需要一条验收标准' }
 
   const now = nowIso()
+  const id = newId('room')
+  const workspaceDir = join(roomsRoot(), id, 'work')
+  try {
+    mkdirSync(workspaceDir, { recursive: true })
+  } catch {
+    /* 建不出来不影响建房，第一次跑的时候还会再试 */
+  }
+
   return {
-    id: newId('room'),
+    id,
     name: name.trim(),
     goal: goal.trim(),
     acceptance,
@@ -77,6 +87,7 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
     mode: input.mode === 'auto' ? 'auto' : 'confirm',
     budget: { perRun: 200_000, perBot: 800_000, perRoom: 1_500_000 },
     shared: '',
+    workspaceDir,
     tokensUsed: 0,
     // 新房间默认拉一只执行 Bot，之后可以再拉人
     members: [
@@ -287,6 +298,33 @@ export function createHandler(ctx: AgentContext) {
         }
 
         send(res, 400, { error: `未知动作：${action}` })
+        return
+      }
+
+      // ---- /rooms/:id/stop（停止当前这一轮）----
+      if (parts.length === 3 && parts[2] === 'stop' && method === 'POST') {
+        const stopped = cancelRoom(roomId)
+        const db = loadDb()
+        const target = db.rooms.find((r) => r.id === roomId)
+        if (target !== undefined) {
+          target.status = 'created'
+          for (const member of target.members ?? []) {
+            if (member.status === 'thinking' || member.status === 'queued') {
+              member.status = 'idle'
+              member.activity = undefined
+            }
+          }
+          target.updatedAt = nowIso()
+        }
+        const note = makeMessage(
+          roomId,
+          'system',
+          'system',
+          stopped ? '已停止：这一轮被手动中断。' : '当前没有在跑的轮次。'
+        )
+        db.messages.push(note)
+        saveDb(db)
+        send(res, 200, { stopped, messages: [note] })
         return
       }
 

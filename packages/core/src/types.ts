@@ -131,8 +131,10 @@ export interface Room {
   status: RoomStatus
   mode: RoomMode
   budget: Budget
-  /** 共享工作副本的路径。 */
+  /** 共享工作副本的路径（旧字段，保留兼容）。 */
   shared: string
+  /** 本房间的工作目录；Bot 的所有读写都应当落在这里。 */
+  workspaceDir?: string
   /** 主持人 Bot 的 id，负责分派。 */
   hostBotId?: string
   /** 房间成员。老数据为空数组，读的时候会惰性迁移。 */
