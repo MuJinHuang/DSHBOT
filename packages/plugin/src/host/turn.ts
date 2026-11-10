@@ -45,6 +45,38 @@ const queues = new Map<string, Promise<unknown>>()
 const activeCancels = new Map<string, Set<() => void>>()
 
 /**
+ * 运行中的实时活动（只在内存里）。
+ *
+ * 不写库的原因：两个 Bot 并行时同时 saveDb 会互相覆盖，
+ * 而这类"正在干什么"的信息丢了也无所谓，内存里给 SSE 用就够了。
+ */
+const liveActivity = new Map<string, string>()
+
+/** 记一笔实时活动。 */
+function setLive(roomId: string, botId: string, text: string): void {
+  liveActivity.set(`${roomId}:${botId}`, text)
+}
+
+/** 清掉某个 Bot 的实时活动。 */
+function clearLive(roomId: string, botId: string): void {
+  liveActivity.delete(`${roomId}:${botId}`)
+}
+
+/**
+ * 取房间的实时活动快照，供 SSE 合并进成员状态。
+ *
+ * @param roomId - 房间
+ */
+export function liveActivitiesOf(roomId: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of liveActivity) {
+    const [id, botId] = key.split(':')
+    if (id === roomId && botId !== undefined) out[botId] = value
+  }
+  return out
+}
+
+/**
  * 登记一个可取消的 run。
  *
  * @param roomId - 房间
@@ -275,6 +307,9 @@ async function runMember(
       member.sessionSeq ?? 0,
       (agent) => {
         untrack = trackCancel(roomId, agent)
+      },
+      (event) => {
+        setLive(roomId, member.botId, `正在 ${event.name}…`)
       }
     )
     const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
@@ -334,6 +369,7 @@ async function runMember(
     return { messages: [note] }
   } finally {
     untrack?.()
+    clearLive(roomId, member.botId)
   }
 }
 
@@ -707,6 +743,8 @@ export async function handleRoomMessage(
           receiver,
           task: taskFor(reply, receiver.name)
         }))
+        const needsConfirm = fresh.mode === 'confirm'
+        const planId = newId('plan')
 
         const withCards = loadDb()
         const hostRoom = withCards.rooms.find((r) => r.id === roomId)
@@ -746,64 +784,150 @@ export async function handleRoomMessage(
             from: target.name,
             to: plan.receiver.name,
             botId: plan.receiver.botId,
-            status: 'running',
+            status: needsConfirm ? 'pending' : 'running',
+            planId,
             ...(seat?.files === undefined ? {} : { files: seat.files })
           }
           card.botId = plan.receiver.botId
           return card
         })
 
+        if (needsConfirm) {
+          // 确认模式下只出计划，不干活
+          const waiting = withCards.rooms.find((r) => r.id === roomId)
+          if (waiting !== undefined) {
+            waiting.pendingPlan = {
+              id: planId,
+              hostBotId: target.botId,
+              hostName: target.name,
+              at: nowIso(),
+              items: plans.map((plan) => ({
+                botId: plan.receiver.botId,
+                name: plan.receiver.name,
+                task: plan.task,
+                files: extractFiles(plan.task)
+              }))
+            }
+            waiting.updatedAt = nowIso()
+          }
+          const hint = makeMessage(
+            roomId,
+            'system',
+            'system',
+            `计划已生成：${plans.length} 件事等待确认。到上方点「批准执行」或「否决」。`
+          )
+          withCards.messages.push(...warnings, ...cards, hint)
+          saveDb(withCards)
+          produced.push(...warnings, ...cards, hint)
+          return finishTurn(roomId, produced)
+        }
+
         withCards.messages.push(...warnings, ...cards)
         saveDb(withCards)
         produced.push(...warnings, ...cards)
 
         // 并行跑，最多 2 个同时开工
-        const results = await runWithLimit(plans, DISPATCH_CONCURRENCY, async (plan) => {
-          const sub = await runMember(ctx, roomId, plan.receiver, plan.task, plan.task)
-          return { plan, sub }
-        })
-
-        for (const item of results) {
-          if (item === null) continue
-          const { plan, sub } = item
-          produced.push(...sub.messages)
-
-          const summary = (sub.outcome?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
-          const doneCard = makeMessage(
-            roomId,
-            'assignment',
-            target.botId,
-            `${target.name} → ${plan.receiver.name}：${plan.task}`
-          )
-          doneCard.payload = {
-            title: plan.task,
-            from: target.name,
-            to: plan.receiver.name,
+        const results = await runPlan(
+          ctx,
+          roomId,
+          target.botId,
+          target.name,
+          plans.map((plan) => ({
             botId: plan.receiver.botId,
-            status: sub.outcome === undefined ? 'failed' : 'done',
-            // Handoff：把执行者的结论摘要挂在卡上，下游不用翻消息流
-            ...(summary === '' ? {} : { result: summary })
-          }
-          doneCard.botId = plan.receiver.botId
-          const closed = loadDb()
-          closed.messages.push(doneCard)
-          saveDb(closed)
-          produced.push(doneCard)
-        }
+            name: plan.receiver.name,
+            task: plan.task
+          }))
+        )
+        produced.push(...results)
       }
     }
 
-    const finish = loadDb()
-    const finished = finish.rooms.find((r) => r.id === roomId)
-    if (finished !== undefined) {
-      finished.status = 'created'
-      finished.updatedAt = nowIso()
-      for (const member of finished.members ?? []) {
-        if (member.status === 'queued') member.status = 'idle'
-      }
+    return finishTurn(roomId, produced)
+  })
+}
+
+/** 收尾：房间回到 created，排队中的成员复位。 */
+function finishTurn(roomId: string, produced: Message[]): { messages: Message[]; skipped: boolean } {
+  const finish = loadDb()
+  const room = finish.rooms.find((r) => r.id === roomId)
+  if (room !== undefined) {
+    room.status = 'created'
+    room.updatedAt = nowIso()
+    for (const member of room.members ?? []) {
+      if (member.status === 'queued') member.status = 'idle'
     }
     saveDb(finish)
+  }
+  return { messages: produced, skipped: false }
+}
 
-    return { messages: produced, skipped: false }
+/**
+ * 按计划跑一批委派，返回产生的消息。
+ *
+ * 抽出来是为了让「确认后执行」和「自动执行」走同一条路。
+ *
+ * @param ctx - Host 上下文
+ * @param roomId - 房间
+ * @param hostBotId - 总管 botId
+ * @param hostName - 总管名字
+ * @param items - 要跑的活
+ */
+export async function runPlan(
+  ctx: AgentContext,
+  roomId: string,
+  hostBotId: string,
+  hostName: string,
+  items: { botId: string; name: string; task: string }[]
+): Promise<Message[]> {
+  const produced: Message[] = []
+  const room = loadDb().rooms.find((r) => r.id === roomId)
+  const plans = items.map((item) => {
+    const member = (room?.members ?? []).find((m) => m.botId === item.botId)
+    return {
+      receiver: member ?? {
+        botId: item.botId,
+        name: item.name,
+        role: 'worker' as const,
+        avatar: '🤖',
+        status: 'idle' as const,
+        tokensUsed: 0
+      },
+      task: item.task
+    }
   })
+
+  const results = await runWithLimit(plans, DISPATCH_CONCURRENCY, async (plan) => {
+    const sub = await runMember(ctx, roomId, plan.receiver, plan.task, plan.task)
+    return { plan, sub }
+  })
+
+  for (const item of results) {
+    if (item === null) continue
+    const { plan, sub } = item
+    produced.push(...sub.messages)
+
+    const summary = (sub.outcome?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
+    const doneCard = makeMessage(
+      roomId,
+      'assignment',
+      hostBotId,
+      `${hostName} → ${plan.receiver.name}：${plan.task}`
+    )
+    doneCard.payload = {
+      title: plan.task,
+      from: hostName,
+      to: plan.receiver.name,
+      botId: plan.receiver.botId,
+      status: sub.outcome === undefined ? 'failed' : 'done',
+      // Handoff：把执行者的结论摘要挂在卡上，下游不用翻消息流
+      ...(summary === '' ? {} : { result: summary })
+    }
+    doneCard.botId = plan.receiver.botId
+    const closed = loadDb()
+    closed.messages.push(doneCard)
+    saveDb(closed)
+    produced.push(doneCard)
+  }
+
+  return produced
 }

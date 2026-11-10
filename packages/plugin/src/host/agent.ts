@@ -249,6 +249,7 @@ async function acquireAgent(
  * @param existingSessionId - 房间记住的会话 id，传了就续聊
  * @param sinceSeq - 只处理比这个序号更新的事件，用来跳过历史
  * @param onAgent - 拿到句柄时回调一次，调用方可以借它注册"停止"
+ * @param onEvent - 运行中的事件回调（目前只抛工具调用），用于实时状态
  */
 export async function runOnce(
   ctx: AgentContext,
@@ -256,7 +257,8 @@ export async function runOnce(
   cwd: string,
   existingSessionId?: string,
   sinceSeq = 0,
-  onAgent?: (agent: AgentHandle) => void
+  onAgent?: (agent: AgentHandle) => void,
+  onEvent?: (event: { kind: 'tool'; name: string }) => void
 ): Promise<RunOutcome> {
   const started = Date.now()
   const acquired = await acquireAgent(ctx, existingSessionId, cwd)
@@ -291,6 +293,16 @@ export async function runOnce(
     try {
       emitter.on('session/event', (event) => {
         captured.push(event)
+        // 顺手把工具调用抛给调用方，界面上就能看到"正在干什么"
+        const frame = event as { log?: unknown[]; type?: string }
+        const list = Array.isArray(frame.log) ? frame.log : [event]
+        for (const item of list) {
+          const entry = item as { type?: string; data?: { name?: unknown } }
+          if (entry?.type === 'tool/call') {
+            const name = String(entry.data?.name ?? '')
+            if (name !== '') onEvent?.({ kind: 'tool', name })
+          }
+        }
       })
     } catch {
       /* 事件名不对就算了，诊断用 */

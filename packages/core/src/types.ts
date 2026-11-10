@@ -89,6 +89,23 @@ export interface Member {
   files?: string[]
 }
 
+/** 计划里的一件活。 */
+export interface PlanItem {
+  botId: string
+  name: string
+  task: string
+  files: string[]
+}
+
+/** 等待人确认的分派计划。 */
+export interface PendingPlan {
+  id: string
+  hostBotId: string
+  hostName: string
+  at: string
+  items: PlanItem[]
+}
+
 /** 单条验收点的判定。 */
 export interface DeliveryCheck {
   point: string
@@ -147,6 +164,8 @@ export interface Room {
   mentionOnly?: boolean
   /** 最近一次交付结论。 */
   delivery?: Delivery
+  /** 等待确认的分派计划（confirm 模式下存在）。 */
+  pendingPlan?: PendingPlan
   tokensUsed: number
   createdAt: string
   updatedAt: string

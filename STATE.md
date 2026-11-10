@@ -76,6 +76,15 @@ DSH 桌面端侧栏多了「🏠 房间」入口，点开是三栏页面：
 | 版本快照 | ✅ | 每次运行前 `git commit`，`GET /rooms/:id/versions` 可查 |
 | 回滚 | ✅ | `POST /rooms/:id/versions {hash}`；回滚前先快照，界面二次确认 |
 
+### 第四批（收尾）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| Markdown 渲染 | ✅ | `parseBlocks` / `parseInline` 在 core，支持代码块、列表、表格、标题、加粗；14 个单测 |
+| 实时活动 | ✅ | 工具调用时把「正在 xxx…」写进内存，SSE 快照合并后推送，不写库避免并发覆盖 |
+| 计划确认门 | ✅ | `mode=confirm` 时只出计划（任务卡 pending）＋「批准执行/否决」；`POST /rooms/:id/plan` |
+| 全部测试 | ✅ | 43 个 |
+
 ## 3. 代码地图
 
 ```

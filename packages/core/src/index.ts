@@ -20,3 +20,5 @@ export {
 } from './parse.js'
 export type { CheckSpec } from './parse.js'
 export { buildMarkdown } from './markdown.js'
+export { parseBlocks, parseInline } from './blocks.js'
+export type { Block, Inline } from './blocks.js'

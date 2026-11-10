@@ -16,7 +16,7 @@ import { newId, nowIso, parseMentions } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
-import { cancelRoom, deliverRoom, handleRoomMessage, listVersions, makeMessage, rollbackWorkspace } from './turn.js'
+import { cancelRoom, deliverRoom, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
@@ -252,7 +252,17 @@ export function createHandler(ctx: AgentContext) {
             res.write('event: gone\ndata: {}\n\n')
             return
           }
-          res.write('data: ' + JSON.stringify(fresh) + '\n\n')
+          // 把内存里的实时活动合进去，界面能看到"正在读哪个文件"
+          const live = liveActivitiesOf(roomId)
+          const merged = {
+            ...fresh,
+            members: (fresh.members ?? []).map((member) =>
+              live[member.botId] === undefined
+                ? member
+                : { ...member, activity: live[member.botId], status: 'thinking' }
+            )
+          }
+          res.write('data: ' + JSON.stringify(merged) + '\n\n')
         }
 
         push()
@@ -385,6 +395,68 @@ export function createHandler(ctx: AgentContext) {
           target.updatedAt = nowIso()
           saveDb(db)
           send(res, 200, { room: target, messages: [note] })
+          return
+        }
+
+        send(res, 400, { error: `未知动作：${action}` })
+        return
+      }
+
+      // ---- /rooms/:id/plan（批准 / 否决待确认计划）----
+      if (parts.length === 3 && parts[2] === 'plan' && method === 'POST') {
+        const input = (await readJson(req)) as { action?: unknown }
+        const action = String(input.action ?? '')
+        const db = loadDb()
+        const target = db.rooms.find((r) => r.id === roomId)
+        if (target === undefined) {
+          send(res, 404, { error: '房间不存在' })
+          return
+        }
+        const plan = target.pendingPlan
+        if (plan === undefined) {
+          send(res, 409, { error: '没有待确认的计划' })
+          return
+        }
+
+        // 计划里的任务卡状态随之变化
+        const markCards = (status: string): void => {
+          for (const message of db.messages) {
+            const payload = message.payload as { planId?: unknown; status?: unknown } | undefined
+            if (message.roomId === roomId && payload?.planId === plan.id) {
+              payload.status = status
+            }
+          }
+        }
+
+        if (action === 'reject') {
+          markCards('rejected')
+          target.pendingPlan = undefined
+          target.status = 'created'
+          target.updatedAt = nowIso()
+          const note = makeMessage(roomId, 'system', 'system', '计划已否决，没有执行。')
+          db.messages.push(note)
+          saveDb(db)
+          send(res, 200, { room: target, messages: [note] })
+          return
+        }
+
+        if (action === 'approve') {
+          markCards('running')
+          target.pendingPlan = undefined
+          target.status = 'working'
+          target.updatedAt = nowIso()
+          saveDb(db)
+
+          const produced = await runPlan(ctx, roomId, plan.hostBotId, plan.hostName, plan.items)
+
+          const after = loadDb()
+          const fresh = after.rooms.find((r) => r.id === roomId)
+          if (fresh !== undefined) {
+            fresh.status = 'created'
+            fresh.updatedAt = nowIso()
+            saveDb(after)
+          }
+          send(res, 200, { ok: true, messages: produced })
           return
         }
 

@@ -13,10 +13,12 @@ import {
   takeover,
   updateRoom,
   listVersions,
-  rollback
+  rollback,
+  decidePlan
 } from './api'
 import type { VersionEntry } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
+import { parseBlocks, parseInline } from '@dshbot/core/blocks'
 
 /**
  * 房间页。
@@ -375,6 +377,147 @@ function AssignmentRow(props: { message: Message }) {
   )
 }
 
+/** 行内格式：**粗** 与 `代码`。 */
+function InlineText(props: { text: string }) {
+  const parts = parseInline(props.text)
+  if (parts.length === 1 && parts[0]?.kind === 'text') return h('span', {}, props.text)
+  return h(
+    'span',
+    {},
+    ...parts.map((part, index) =>
+      part.kind === 'bold'
+        ? h('strong', { key: index }, part.text)
+        : part.kind === 'code'
+          ? h(
+              'code',
+              {
+                key: index,
+                style: {
+                  fontFamily: 'Consolas, monospace',
+                  fontSize: '0.92em',
+                  background: 'rgba(128,128,128,0.16)',
+                  padding: '1px 4px',
+                  borderRadius: 3
+                }
+              },
+              part.text
+            )
+          : h('span', { key: index }, part.text)
+    )
+  )
+}
+
+/** 把 Bot 回复按 Markdown 块渲染。 */
+function MarkdownText(props: { text: string }) {
+  const blocks = parseBlocks(props.text)
+  if (blocks.length === 0) return h('div', {}, props.text)
+
+  return h(
+    'div',
+    { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+    ...blocks.map((block, index) => {
+      if (block.kind === 'code') {
+        return h(
+          'pre',
+          {
+            key: index,
+            style: {
+              margin: 0,
+              padding: '8px 10px',
+              borderRadius: 6,
+              background: 'rgba(0,0,0,0.28)',
+              fontFamily: 'Consolas, monospace',
+              fontSize: 11.5,
+              lineHeight: 1.5,
+              overflow: 'auto',
+              whiteSpace: 'pre'
+            }
+          },
+          block.text
+        )
+      }
+      if (block.kind === 'heading') {
+        const size = block.level === 1 ? 15 : block.level === 2 ? 14 : 13
+        return h('div', { key: index, style: { fontSize: size, fontWeight: 600 } }, [
+          h(InlineText, { key: 'i', text: block.text })
+        ])
+      }
+      if (block.kind === 'table') {
+        return h(
+          'table',
+          {
+            key: index,
+            style: { borderCollapse: 'collapse', fontSize: 11.5, margin: '2px 0', width: '100%' }
+          },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              ...block.header.map((cell, cellIndex) =>
+                h(
+                  'th',
+                  {
+                    key: cellIndex,
+                    style: {
+                      border: LINE,
+                      padding: '3px 8px',
+                      textAlign: 'left',
+                      background: 'rgba(128,128,128,0.12)'
+                    }
+                  },
+                  [h(InlineText, { key: 'i', text: cell })]
+                )
+              )
+            )
+          ),
+          h(
+            'tbody',
+            {},
+            ...block.rows.map((row, rowIndex) =>
+              h(
+                'tr',
+                { key: rowIndex },
+                ...row.map((cell, cellIndex) =>
+                  h(
+                    'td',
+                    { key: cellIndex, style: { border: LINE, padding: '3px 8px' } },
+                    [h(InlineText, { key: 'i', text: cell })]
+                  )
+                )
+              )
+            )
+          )
+        )
+      }
+      if (block.kind === 'list') {
+        return h(
+          block.ordered ? 'ol' : 'ul',
+          { key: index, style: { margin: 0, paddingLeft: 20 } },
+          ...block.items.map((item, itemIndex) =>
+            h('li', { key: itemIndex, style: { marginBottom: 2 } }, [
+              h(InlineText, { key: 'i', text: item })
+            ])
+          )
+        )
+      }
+      const lines = block.text.split('\n')
+      return h(
+        'div',
+        { key: index },
+        ...lines.map((line, lineIndex) =>
+          h(
+            'div',
+            { key: lineIndex },
+            lineIndex === lines.length - 1 ? [h(InlineText, { key: 'i', text: line })] : [h(InlineText, { key: 'i', text: line })]
+          )
+        )
+      )
+    })
+  )
+}
+
 /** 一条消息。bot 消息带发送者名字，方便分清楚是谁说的。 */
 function MessageRow(props: { message: Message; member?: Member }) {
   const { message, member } = props
@@ -410,11 +553,11 @@ function MessageRow(props: { message: Message; member?: Member }) {
             borderRadius: 10,
             fontSize: 13,
             lineHeight: 1.6,
-            whiteSpace: 'pre-wrap',
+            whiteSpace: mine ? 'pre-wrap' : 'normal',
             background: mine ? 'rgba(47,111,237,0.14)' : 'rgba(128,128,128,0.12)'
           }
         },
-        message.text
+        mine ? message.text : h(MarkdownText, { text: message.text })
       )
     )
   )
@@ -532,6 +675,81 @@ function VersionsPanel(props: {
   )
 }
 
+/** 待确认的计划：批准才开跑。 */
+function PlanBanner(props: {
+  plan: NonNullable<Room['pendingPlan']>
+  busy: boolean
+  onDecide: (action: 'approve' | 'reject') => void
+}) {
+  const { plan } = props
+  return h(
+    'div',
+    {
+      style: {
+        border: '1px solid rgba(232,163,61,0.55)',
+        background: 'rgba(232,163,61,0.08)',
+        borderRadius: 8,
+        padding: '10px 12px',
+        marginBottom: 14,
+        fontSize: 12
+      }
+    },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+      h('span', { style: { fontWeight: 600 } }, '计划待确认'),
+      h('span', { style: { color: MUTED, fontSize: 11 } }, `${plan.hostName} 想去派 ${plan.items.length} 件事`),
+      h('div', { style: { flex: 1 } }),
+      h(
+        'button',
+        {
+          onClick: () => props.onDecide('approve'),
+          disabled: props.busy,
+          style: {
+            padding: '4px 12px',
+            borderRadius: 6,
+            border: 'none',
+            background: '#2f9e44',
+            color: '#fff',
+            fontSize: 11.5,
+            fontFamily: 'inherit',
+            cursor: props.busy ? 'default' : 'pointer',
+            opacity: props.busy ? 0.6 : 1
+          }
+        },
+        props.busy ? '执行中…' : '批准执行'
+      ),
+      h(
+        'button',
+        {
+          onClick: () => props.onDecide('reject'),
+          disabled: props.busy,
+          style: {
+            padding: '4px 12px',
+            borderRadius: 6,
+            border: LINE,
+            background: 'transparent',
+            color: 'inherit',
+            fontSize: 11.5,
+            fontFamily: 'inherit',
+            cursor: props.busy ? 'default' : 'pointer',
+            opacity: props.busy ? 0.6 : 1
+          }
+        },
+        '否决'
+      )
+    ),
+    ...plan.items.map((item, index) =>
+      h(
+        'div',
+        { key: index, style: { display: 'flex', gap: 6, marginBottom: 3, lineHeight: 1.5 } },
+        h('span', { style: { color: MUTED, flexShrink: 0 } }, `${item.name}：`),
+        h('span', {}, item.task)
+      )
+    )
+  )
+}
+
 /** 房间详情：目标 + 验收 + 消息流 + 输入框。 */
 function RoomDetail(props: {
   room: Room
@@ -549,6 +767,8 @@ function RoomDetail(props: {
   onExport: () => void
   versions: VersionEntry[]
   onRollback: (hash: string) => void
+  onDecidePlan: (action: 'approve' | 'reject') => void
+  planBusy: boolean
 }) {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
@@ -745,6 +965,14 @@ function RoomDetail(props: {
       { style: { margin: '0 0 18px', paddingLeft: 18, fontSize: 13, lineHeight: 1.8 } },
       ...room.acceptance.map((item, index) => h('li', { key: index }, item))
     ),
+
+    room.pendingPlan === undefined
+      ? null
+      : h(PlanBanner, {
+          plan: room.pendingPlan,
+          busy: props.planBusy,
+          onDecide: props.onDecidePlan
+        }),
 
     room.delivery === undefined ? null : h(DeliveryPanel, { delivery: room.delivery }),
 
@@ -1181,6 +1409,28 @@ export function RoomsPage() {
     [selectedId]
   )
 
+  // 批准 / 否决计划
+  const [planBusy, setPlanBusy] = useState(false)
+  const decidePlanHandler = useCallback(
+    async (action: 'approve' | 'reject') => {
+      if (selectedId === null) return
+      setPlanBusy(true)
+      setSendError(null)
+      try {
+        const result = await decidePlan(selectedId, action)
+        setMessages(await listMessages(selectedId))
+        const list = await listRooms()
+        setRooms(list)
+        void result
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : '操作失败')
+      } finally {
+        setPlanBusy(false)
+      }
+    },
+    [selectedId]
+  )
+
   // 改房间
   const editRoom = useCallback(    async (input: { name: string; goal: string; acceptance: string[] }) => {
       if (selectedId === null) return
@@ -1338,7 +1588,9 @@ export function RoomsPage() {
                 onDelete: () => void removeRoom(),
                 onExport: () => exportRoom(),
                 versions,
-                onRollback: (hash: string) => void doRollback(hash)
+                onRollback: (hash: string) => void doRollback(hash),
+                onDecidePlan: (action: 'approve' | 'reject') => void decidePlanHandler(action),
+                planBusy
               })
             : h(
                 'div',

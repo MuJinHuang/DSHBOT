@@ -124,6 +124,17 @@ export async function deleteRoom(roomId: string): Promise<void> {
   await request<{ deleted: boolean }>(`rooms/${roomId}`, { method: 'DELETE' })
 }
 
+/** 批准或否决待确认的计划。 */
+export async function decidePlan(
+  roomId: string,
+  action: 'approve' | 'reject'
+): Promise<{ messages: Message[] }> {
+  return request<{ messages: Message[] }>(`rooms/${roomId}/plan`, {
+    method: 'POST',
+    body: JSON.stringify({ action })
+  })
+}
+
 /** 版本列表。 */
 export interface VersionEntry {
   hash: string
