@@ -173,6 +173,97 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
+      // ---- /rooms/:id（改 / 删）----
+      if (parts.length === 2) {
+        if (method === 'PATCH') {
+          const input = (await readJson(req)) as {
+            name?: unknown
+            goal?: unknown
+            acceptance?: unknown
+          }
+          const db = loadDb()
+          const target = db.rooms.find((r) => r.id === roomId)
+          if (target === undefined) {
+            send(res, 404, { error: '房间不存在' })
+            return
+          }
+
+          if (input.name !== undefined) {
+            if (!isNonEmptyString(input.name)) {
+              send(res, 400, { error: 'name 不能为空' })
+              return
+            }
+            target.name = input.name.trim()
+          }
+          if (input.goal !== undefined) {
+            if (!isNonEmptyString(input.goal)) {
+              send(res, 400, { error: 'goal 不能为空' })
+              return
+            }
+            target.goal = input.goal.trim()
+          }
+          if (input.acceptance !== undefined) {
+            const list = Array.isArray(input.acceptance)
+              ? input.acceptance.filter(isNonEmptyString).map((s) => s.trim())
+              : []
+            if (list.length === 0) {
+              send(res, 400, { error: '至少需要一条验收标准' })
+              return
+            }
+            target.acceptance = list
+          }
+
+          target.updatedAt = nowIso()
+          saveDb(db)
+          send(res, 200, { room: target })
+          return
+        }
+
+        if (method === 'DELETE') {
+          const db = loadDb()
+          db.rooms = db.rooms.filter((r) => r.id !== roomId)
+          db.messages = db.messages.filter((m) => m.roomId !== roomId)
+          saveDb(db)
+          send(res, 200, { deleted: true })
+          return
+        }
+
+        if (method === 'GET') {
+          send(res, 200, { room })
+          return
+        }
+
+        send(res, 405, { error: 'method not allowed' })
+        return
+      }
+
+      // ---- /rooms/:id/events（房间状态的 SSE 流）----
+      if (parts.length === 3 && parts[2] === 'events' && method === 'GET') {
+        res.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache, no-transform',
+          connection: 'keep-alive',
+          'x-accel-buffering': 'no'
+        })
+
+        const push = (): void => {
+          const fresh = loadDb().rooms.find((r) => r.id === roomId)
+          if (fresh === undefined) {
+            res.write('event: gone\ndata: {}\n\n')
+            return
+          }
+          res.write('data: ' + JSON.stringify(fresh) + '\n\n')
+        }
+
+        push()
+        const timer = setInterval(push, 1200)
+        req.on('close', () => {
+          clearInterval(timer)
+          res.end()
+        })
+        return
+      }
+
       // ---- /rooms/:id/members（拉人）----
       if (parts.length === 3 && parts[2] === 'members' && method === 'POST') {
         const input = (await readJson(req)) as {

@@ -17,3 +17,4 @@ export {
   parseChecks,
   parseGitStatus
 } from './parse.js'
+export { buildMarkdown } from './markdown.js'

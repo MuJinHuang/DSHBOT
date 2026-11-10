@@ -3,14 +3,17 @@ import type { Delivery, Member, Message, Room } from '@dshbot/core'
 import {
   addMember,
   createRoom,
+  deleteRoom,
   deliver,
   listMessages,
   listRooms,
   say,
   setRoomState,
   stop,
-  takeover
+  takeover,
+  updateRoom
 } from './api'
+import { buildMarkdown } from '@dshbot/core/markdown'
 
 /**
  * 房间页。
@@ -21,6 +24,19 @@ import {
 
 const MUTED = 'rgba(128,128,128,0.72)'
 const LINE = '1px solid rgba(128,128,128,0.25)'
+
+/** 输入框统一样式。 */
+const inputStyle = {
+  padding: '7px 10px',
+  borderRadius: 6,
+  border: LINE,
+  background: 'transparent',
+  color: 'inherit',
+  fontSize: 12.5,
+  fontFamily: 'inherit',
+  width: '100%',
+  boxSizing: 'border-box' as const
+}
 
 /** 把 token 数压成 1.2k / 3.4M 这种。 */
 function formatTokens(value: number): string {
@@ -461,11 +477,19 @@ function RoomDetail(props: {
   onDeliver: () => void
   onTakeover: (action: 'take' | 'return', note?: string) => void
   onStop: () => void
+  onEdit: (input: { name: string; goal: string; acceptance: string[] }) => void
+  onDelete: () => void
+  onExport: () => void
 }) {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
   const [returnOpen, setReturnOpen] = useState(false)
   const [returnNote, setReturnNote] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState(room.name)
+  const [editGoal, setEditGoal] = useState(room.goal)
+  const [editAcceptance, setEditAcceptance] = useState(room.acceptance.join('\n'))
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const submit = () => {
     const text = draft.trim()
@@ -512,6 +536,8 @@ function RoomDetail(props: {
       h(Badge, {}, STATUS_LABEL[room.status] ?? room.status),
       h('div', { style: { flex: 1 } }),
       actionButton(props.delivering ? '验收中…' : '交付验收', 'deliver', () => props.onDeliver()),
+      actionButton('导出', 'export', () => props.onExport()),
+      actionButton(editing ? '取消编辑' : '编辑', 'edit', () => setEditing(!editing)),
       paused
         ? actionButton('恢复', 'resume', () => props.onState('resume'))
         : archived
@@ -524,10 +550,89 @@ function RoomDetail(props: {
           : actionButton('归档', 'archive', () => props.onState('archive')),
       actionButton(mentionOnly ? '仅 @ 响应：开' : '仅 @ 响应：关', 'mention', () =>
         props.onState('toggleMentionOnly')
-      )
+      ),
+      actionButton(confirmDelete ? '确认删除' : '删除', 'delete', () => {
+        if (!confirmDelete) {
+          setConfirmDelete(true)
+          return
+        }
+        props.onDelete()
+      })
     ),
-    h('div', { style: { fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: 10 } },
-      room.goal),
+
+    // 编辑态：改名称 / 目标 / 验收
+    editing
+      ? h(
+          'div',
+          {
+            style: {
+              border: LINE,
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8
+            }
+          },
+          h('input', {
+            value: editName,
+            placeholder: '房间名称',
+            onChange: (e: { target: { value: string } }) => setEditName(e.target.value),
+            style: inputStyle
+          }),
+          h('input', {
+            value: editGoal,
+            placeholder: '目标',
+            onChange: (e: { target: { value: string } }) => setEditGoal(e.target.value),
+            style: inputStyle
+          }),
+          h('textarea', {
+            value: editAcceptance,
+            rows: 3,
+            placeholder: '验收标准，一行一条',
+            onChange: (e: { target: { value: string } }) => setEditAcceptance(e.target.value),
+            style: { ...inputStyle, resize: 'vertical' }
+          }),
+          h(
+            'div',
+            { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
+            h(
+              'button',
+              {
+                onClick: () => setEditing(false),
+                style: { ...inputStyle, width: 72, cursor: 'pointer' }
+              },
+              '取消'
+            ),
+            h(
+              'button',
+              {
+                onClick: () => {
+                  const acceptance = editAcceptance
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter((line) => line !== '')
+                  props.onEdit({ name: editName.trim(), goal: editGoal.trim(), acceptance })
+                  setEditing(false)
+                },
+                style: {
+                  padding: '7px 16px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#2f6fed',
+                  color: '#fff',
+                  fontSize: 12.5,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer'
+                }
+              },
+              '保存'
+            )
+          )
+        )
+      : h('div', { style: { fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: 10 } },
+          room.goal),
 
     // 成本条
     h(
@@ -812,6 +917,34 @@ export function RoomsPage() {
     }
   }, [selectedId])
 
+  // 房间状态走 SSE：一条长连接，服务端有变化就推
+  useEffect(() => {
+    if (selectedId === null || typeof EventSource === 'undefined') return
+    let source: EventSource | undefined
+    try {
+      source = new EventSource(`dshbot/api/rooms/${selectedId}/events`)
+      source.onmessage = (event: MessageEvent<string>) => {
+        try {
+          const room = JSON.parse(event.data) as Room
+          if (room?.id === undefined) return
+          setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
+          // 跑完了就把新消息补上
+          if (room.status !== 'working') {
+            void listMessages(selectedId).then(setMessages).catch(() => undefined)
+          }
+        } catch {
+          /* 单帧坏了不影响后续 */
+        }
+      }
+      source.addEventListener('gone', () => {
+        source?.close()
+      })
+    } catch {
+      source = undefined
+    }
+    return () => source?.close()
+  }, [selectedId])
+
   const send = useCallback(
     async (text: string) => {
       if (selectedId === null) return
@@ -876,10 +1009,10 @@ export function RoomsPage() {
 
   // 拉一只 Bot 进房间
   const addBot = useCallback(
-    async (name: string) => {
+    async (name: string, role: 'host' | 'worker' = 'worker') => {
       if (selectedId === null) return
       try {
-        const result = await addMember(selectedId, { name })
+        const result = await addMember(selectedId, { name, role })
         setRooms((list) => list.map((r) => (r.id === result.room.id ? result.room : r)))
         setSendError(null)
       } catch (err) {
@@ -936,6 +1069,49 @@ export function RoomsPage() {
       setSendError(err instanceof Error ? err.message : '停止失败')
     }
   }, [selectedId])
+
+  // 改房间
+  const editRoom = useCallback(
+    async (input: { name: string; goal: string; acceptance: string[] }) => {
+      if (selectedId === null) return
+      try {
+        const room = await updateRoom(selectedId, input)
+        setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
+        setSendError(null)
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : '保存失败')
+      }
+    },
+    [selectedId]
+  )
+
+  // 删房间
+  const removeRoom = useCallback(async () => {
+    if (selectedId === null) return
+    try {
+      await deleteRoom(selectedId)
+      const list = await listRooms()
+      setRooms(list)
+      setSelectedId(list[0]?.id ?? null)
+      setSendError(null)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '删除失败')
+    }
+  }, [selectedId])
+
+  // 导出 Markdown
+  const exportRoom = useCallback(() => {
+    const room = rooms.find((r) => r.id === selectedId)
+    if (room === undefined) return
+    const md = buildMarkdown(room, messages)
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${room.name}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [rooms, selectedId, messages])
 
   return h(
     'div',
@@ -1046,7 +1222,11 @@ export function RoomsPage() {
                 onDeliver: () => void runDelivery(),
                 onTakeover: (action: 'take' | 'return', note?: string) =>
                   void changeTakeover(action, note),
-                onStop: () => void stopRun()
+                onStop: () => void stopRun(),
+                onEdit: (input: { name: string; goal: string; acceptance: string[] }) =>
+                  void editRoom(input),
+                onDelete: () => void removeRoom(),
+                onExport: () => exportRoom()
               })
             : h(
                 'div',
@@ -1062,14 +1242,18 @@ export function RoomsPage() {
     ),
 
     // 右：成员
-    h(MemberPanel, { room: selected, onAdd: (name: string) => void addBot(name) })
+    h(MemberPanel, { room: selected, onAdd: (name: string, role: 'host' | 'worker') => void addBot(name, role) })
   )
 }
 
 /** 右侧成员面板：成员卡 + 拉人入口。 */
-function MemberPanel(props: { room: Room | null; onAdd: (name: string) => void }) {
+function MemberPanel(props: {
+  room: Room | null
+  onAdd: (name: string, role: 'host' | 'worker') => void
+}) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
+  const [role, setRole] = useState<'host' | 'worker'>('worker')
   const members = props.room?.members ?? []
 
   const submit = () => {
@@ -1077,7 +1261,7 @@ function MemberPanel(props: { room: Room | null; onAdd: (name: string) => void }
     if (value === '') return
     setName('')
     setOpen(false)
-    props.onAdd(value)
+    props.onAdd(value, role)
   }
 
   return h(
@@ -1117,6 +1301,25 @@ function MemberPanel(props: { room: Room | null; onAdd: (name: string) => void }
             h(
               'div',
               { style: { display: 'flex', gap: 6 } },
+              h(
+                'select',
+                {
+                  value: role,
+                  onChange: (e: { target: { value: string } }) =>
+                    setRole(e.target.value === 'host' ? 'host' : 'worker'),
+                  style: {
+                    padding: '5px 6px',
+                    borderRadius: 6,
+                    border: LINE,
+                    background: 'transparent',
+                    color: 'inherit',
+                    fontSize: 12,
+                    fontFamily: 'inherit'
+                  }
+                },
+                h('option', { value: 'worker' }, '执行'),
+                h('option', { value: 'host' }, '总管')
+              ),
               h(
                 'button',
                 {

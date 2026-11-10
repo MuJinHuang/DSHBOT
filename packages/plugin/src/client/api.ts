@@ -107,6 +107,23 @@ export async function stop(roomId: string): Promise<{ stopped: boolean }> {
   })
 }
 
+/** 改房间（名称 / 目标 / 验收）。 */
+export async function updateRoom(
+  roomId: string,
+  input: { name?: string; goal?: string; acceptance?: string[] }
+): Promise<Room> {
+  const data = await request<{ room: Room }>(`rooms/${roomId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  })
+  return data.room
+}
+
+/** 删除房间。 */
+export async function deleteRoom(roomId: string): Promise<void> {
+  await request<{ deleted: boolean }>(`rooms/${roomId}`, { method: 'DELETE' })
+}
+
 /** 接管 / 交还。 */
 export async function takeover(
   roomId: string,
