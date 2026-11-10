@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 
 import {
   extractFiles,
+  normalizeAcceptanceLine,
   normalizeVerdict,
   parseChecks,
   parseCheckSpec,
@@ -195,4 +196,20 @@ test('parseCheckSpec：前后空格与空值', () => {
 
 test('parseCheckSpec：只认小写前缀，别的算文本', () => {
   assert.equal(parseCheckSpec('File:README.md').kind, 'text')
+})
+
+test('normalizeAcceptanceLine：去掉手打序号与最外层反引号', () => {
+  assert.equal(normalizeAcceptanceLine('1. `提到 M0 的完成情况`'), '提到 M0 的完成情况')
+  assert.equal(normalizeAcceptanceLine('2) 列出三条'), '列出三条')
+  assert.equal(normalizeAcceptanceLine('- 全文不超过 400 字'), '全文不超过 400 字')
+  assert.equal(normalizeAcceptanceLine('`file:README.md`'), 'file:README.md')
+})
+
+test('normalizeAcceptanceLine：不动正常文本', () => {
+  assert.equal(normalizeAcceptanceLine('暗色主题对比度达标'), '暗色主题对比度达标')
+  assert.equal(normalizeAcceptanceLine('file:src/a.ts'), 'file:src/a.ts')
+})
+
+test('parseCheckSpec：带序号的谓词也能识别', () => {
+  assert.deepEqual(parseCheckSpec('1. file:README.md'), { kind: 'file', value: 'README.md' })
 })

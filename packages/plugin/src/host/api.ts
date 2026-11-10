@@ -10,13 +10,13 @@
  * 注意：路由不做鉴权，只监听回环地址；本地单用户场景够用。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { newId, nowIso, parseMentions } from '@dshbot/core'
+import { existsSync, mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { newId, normalizeAcceptanceLine, nowIso, parseMentions } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
-import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan } from './turn.js'
+import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan, snapshotsOf } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
@@ -61,17 +61,27 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
   if (!isNonEmptyString(name)) return { error: 'name 不能为空' }
   if (!isNonEmptyString(goal)) return { error: 'goal 不能为空' }
 
-  const acceptance = Array.isArray(acceptanceRaw)
-    ? acceptanceRaw.filter(isNonEmptyString).map((s) => s.trim())
+  const acceptance = (Array.isArray(acceptanceRaw)
+    ? acceptanceRaw.filter(isNonEmptyString)
     : isNonEmptyString(acceptanceRaw)
-      ? [acceptanceRaw.trim()]
+      ? [acceptanceRaw]
       : []
+  )
+    .map((line) => normalizeAcceptanceLine(line))
+    .filter((line) => line !== '')
 
   if (acceptance.length === 0) return { error: '至少需要一条验收标准' }
 
   const now = nowIso()
   const id = newId('room')
-  const workspaceDir = join(roomsRoot(), id, 'work')
+
+  // 可以绑定一个已有目录当工作区；不填就用房间自己的空目录
+  let workspaceDir = join(roomsRoot(), id, 'work')
+  if (isNonEmptyString(input.workspaceDir)) {
+    const bound = resolve(input.workspaceDir.trim())
+    if (!existsSync(bound)) return { error: `工作目录不存在：${bound}` }
+    workspaceDir = bound
+  }
   try {
     mkdirSync(workspaceDir, { recursive: true })
   } catch {
@@ -180,6 +190,7 @@ export function createHandler(ctx: AgentContext) {
             name?: unknown
             goal?: unknown
             acceptance?: unknown
+            workspaceDir?: unknown
           }
           const db = loadDb()
           const target = db.rooms.find((r) => r.id === roomId)
@@ -203,14 +214,30 @@ export function createHandler(ctx: AgentContext) {
             target.goal = input.goal.trim()
           }
           if (input.acceptance !== undefined) {
-            const list = Array.isArray(input.acceptance)
-              ? input.acceptance.filter(isNonEmptyString).map((s) => s.trim())
+            const list = (Array.isArray(input.acceptance)
+              ? input.acceptance.filter(isNonEmptyString)
               : []
+            )
+              .map((line) => normalizeAcceptanceLine(line))
+              .filter((line) => line !== '')
             if (list.length === 0) {
               send(res, 400, { error: '至少需要一条验收标准' })
               return
             }
             target.acceptance = list
+          }
+
+          if (input.workspaceDir !== undefined) {
+            if (!isNonEmptyString(input.workspaceDir)) {
+              send(res, 400, { error: '工作目录不能为空' })
+              return
+            }
+            const bound = resolve(input.workspaceDir.trim())
+            if (!existsSync(bound)) {
+              send(res, 400, { error: `工作目录不存在：${bound}` })
+              return
+            }
+            target.workspaceDir = bound
           }
 
           target.updatedAt = nowIso()
@@ -410,7 +437,7 @@ export function createHandler(ctx: AgentContext) {
           return
         }
         const dir = room.workspaceDir ?? join(roomsRoot(), roomId, 'work')
-        send(res, 200, fileDiff(dir, file))
+        send(res, 200, fileDiff(snapshotsOf(room), dir, file))
         return
       }
 
@@ -479,8 +506,9 @@ export function createHandler(ctx: AgentContext) {
       // ---- /rooms/:id/versions（版本列表 / 回滚）----
       if (parts.length === 3 && parts[2] === 'versions') {
         const dir = room.workspaceDir ?? join(roomsRoot(), roomId, 'work')
+        const snap = snapshotsOf(room)
         if (method === 'GET') {
-          send(res, 200, { versions: listVersions(dir) })
+          send(res, 200, { versions: listVersions(snap, dir) })
           return
         }
         if (method === 'POST') {
@@ -489,7 +517,7 @@ export function createHandler(ctx: AgentContext) {
             send(res, 400, { error: 'hash 不能为空' })
             return
           }
-          const ok = rollbackWorkspace(dir, input.hash.trim())
+          const ok = rollbackWorkspace(snap, dir, input.hash.trim())
           const note = makeMessage(
             roomId,
             'system',
@@ -499,7 +527,7 @@ export function createHandler(ctx: AgentContext) {
           const db = loadDb()
           db.messages.push(note)
           saveDb(db)
-          send(res, ok ? 200 : 500, { ok, versions: listVersions(dir), messages: [note] })
+          send(res, ok ? 200 : 500, { ok, versions: listVersions(snap, dir), messages: [note] })
           return
         }
         send(res, 405, { error: 'method not allowed' })

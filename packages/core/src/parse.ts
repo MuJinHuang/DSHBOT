@@ -145,12 +145,26 @@ export type CheckSpec =
   | { kind: 'text'; value: string }
 
 /**
+ * 规范化一条验收标准：去掉手打的序号、项目符号和最外层的反引号。
+ *
+ * 用户常把 "1. `xxx`" 整行粘进来，不去掉的话界面会显示 "1. 1. `xxx`"。
+ *
+ * @param line - 原始一行
+ */
+export function normalizeAcceptanceLine(line: string): string {
+  let text = line.trim()
+  text = text.replace(/^(?:\d+[.)]|[-*])\s+/, '')
+  text = text.replace(/^`([\s\S]*)`$/, '$1')
+  return text.trim()
+}
+
+/**
  * 解析一条验收标准，判断它是可机器验证的谓词还是自由文本。
  *
  * @param line - 一条验收标准
  */
 export function parseCheckSpec(line: string): CheckSpec {
-  const text = line.trim()
+  const text = normalizeAcceptanceLine(line)
   if (text.startsWith('file:')) return { kind: 'file', value: text.slice(5).trim() }
   if (text.startsWith('cmd:')) return { kind: 'cmd', value: text.slice(4).trim() }
   return { kind: 'text', value: text }

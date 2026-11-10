@@ -178,6 +178,7 @@ function CreateForm(props: {
   const [name, setName] = useState('')
   const [goal, setGoal] = useState('')
   const [acceptance, setAcceptance] = useState('')
+  const [workspace, setWorkspace] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -193,7 +194,8 @@ function CreateForm(props: {
         acceptance: acceptance
           .split('\n')
           .map((line) => line.trim())
-          .filter(Boolean)
+          .filter(Boolean),
+        ...(workspace.trim() === '' ? {} : { workspaceDir: workspace.trim() })
       })
       props.onCreated(room)
     } catch (err) {
@@ -201,7 +203,7 @@ function CreateForm(props: {
     } finally {
       setBusy(false)
     }
-  }, [name, goal, acceptance, props])
+  }, [name, goal, acceptance, workspace, props])
 
   const inputStyle = {
     width: '100%',
@@ -257,6 +259,21 @@ function CreateForm(props: {
       }),
       h('div', { style: { fontSize: 11, color: MUTED, marginTop: 6, lineHeight: 1.6 } },
         'file:路径 = 文件必须存在；cmd:命令 = 退出码必须为 0；其余交给模型判。')
+    ),
+
+    h('div', { style: { marginBottom: 18 } },
+      h('div', { style: { fontSize: 12, marginBottom: 6 } },
+        '工作目录',
+        h('span', { style: { color: MUTED, marginLeft: 8 } }, '可选，留空则用房间自己的空目录')
+      ),
+      h('input', {
+        value: workspace,
+        onChange: (e: { target: { value: string } }) => setWorkspace(e.target.value),
+        placeholder: 'D:\\Desktop\\DSBOT',
+        style: inputStyle
+      }),
+      h('div', { style: { fontSize: 11, color: MUTED, marginTop: 6, lineHeight: 1.6 } },
+        'Bot 只能看到这个目录里的文件。要让它们读你的项目，必须在这里填项目路径。')
     ),
 
     error
@@ -879,7 +896,7 @@ function RoomDetail(props: {
   onDeliver: () => void
   onTakeover: (action: 'take' | 'return', note?: string) => void
   onStop: () => void
-  onEdit: (input: { name: string; goal: string; acceptance: string[] }) => void
+  onEdit: (input: { name: string; goal: string; acceptance: string[]; workspaceDir: string }) => void
   onDelete: () => void
   onExport: () => void
   versions: VersionEntry[]
@@ -895,6 +912,7 @@ function RoomDetail(props: {
   const [editName, setEditName] = useState(room.name)
   const [editGoal, setEditGoal] = useState(room.goal)
   const [editAcceptance, setEditAcceptance] = useState(room.acceptance.join('\n'))
+  const [editWorkspace, setEditWorkspace] = useState(room.workspaceDir ?? '')
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const submit = () => {
@@ -1000,6 +1018,12 @@ function RoomDetail(props: {
             onChange: (e: { target: { value: string } }) => setEditAcceptance(e.target.value),
             style: { ...inputStyle, resize: 'vertical' }
           }),
+          h('input', {
+            value: editWorkspace,
+            placeholder: '工作目录（Bot 只能看这个目录）',
+            onChange: (e: { target: { value: string } }) => setEditWorkspace(e.target.value),
+            style: inputStyle
+          }),
           h(
             'div',
             { style: { fontSize: 11, color: MUTED, lineHeight: 1.6 } },
@@ -1024,7 +1048,12 @@ function RoomDetail(props: {
                     .split('\n')
                     .map((line) => line.trim())
                     .filter((line) => line !== '')
-                  props.onEdit({ name: editName.trim(), goal: editGoal.trim(), acceptance })
+                  props.onEdit({
+                    name: editName.trim(),
+                    goal: editGoal.trim(),
+                    acceptance,
+                    workspaceDir: editWorkspace.trim()
+                  })
                   setEditing(false)
                 },
                 style: {
@@ -1549,10 +1578,16 @@ export function RoomsPage() {
   )
 
   // 改房间
-  const editRoom = useCallback(    async (input: { name: string; goal: string; acceptance: string[] }) => {
+  const editRoom = useCallback(
+    async (input: { name: string; goal: string; acceptance: string[]; workspaceDir: string }) => {
       if (selectedId === null) return
       try {
-        const room = await updateRoom(selectedId, input)
+        // 留空表示不动工作目录（不能把它改成空，那会让 Bot 无处落文件）
+        const patch =
+          input.workspaceDir === ''
+            ? { name: input.name, goal: input.goal, acceptance: input.acceptance }
+            : input
+        const room = await updateRoom(selectedId, patch)
         setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
         setSendError(null)
       } catch (err) {
@@ -1700,8 +1735,12 @@ export function RoomsPage() {
                 onTakeover: (action: 'take' | 'return', note?: string) =>
                   void changeTakeover(action, note),
                 onStop: () => void stopRun(),
-                onEdit: (input: { name: string; goal: string; acceptance: string[] }) =>
-                  void editRoom(input),
+                onEdit: (input: {
+                  name: string
+                  goal: string
+                  acceptance: string[]
+                  workspaceDir: string
+                }) => void editRoom(input),
                 onDelete: () => void removeRoom(),
                 onExport: () => exportRoom(),
                 versions,

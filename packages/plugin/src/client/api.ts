@@ -14,6 +14,8 @@ export interface NewRoomInput {
   name: string
   goal: string
   acceptance: string[]
+  /** 可选：绑定一个已有目录当工作区；不填就用房间自己的空目录。 */
+  workspaceDir?: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -110,7 +112,7 @@ export async function stop(roomId: string): Promise<{ stopped: boolean }> {
 /** 改房间（名称 / 目标 / 验收）。 */
 export async function updateRoom(
   roomId: string,
-  input: { name?: string; goal?: string; acceptance?: string[] }
+  input: { name?: string; goal?: string; acceptance?: string[]; workspaceDir?: string }
 ): Promise<Room> {
   const data = await request<{ room: Room }>(`rooms/${roomId}`, {
     method: 'PATCH',
