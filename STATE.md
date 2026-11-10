@@ -85,6 +85,16 @@ DSH 桌面端侧栏多了「🏠 房间」入口，点开是三栏页面：
 | 计划确认门 | ✅ | `mode=confirm` 时只出计划（任务卡 pending）＋「批准执行/否决」；`POST /rooms/:id/plan` |
 | 全部测试 | ✅ | 43 个 |
 
+### 第五批（工程化收尾）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 全局并发闸门 | ✅ | 跨房间最多 4 个 Run，超出排队 |
+| diff 预览 | ✅ | `GET /rooms/:id/diff?file=`；交付面板点文件看差异 |
+| 错误边界 | ✅ | `RoomsBoundary` 包住房间页，炸了给"重试"而不是白屏 |
+| 一键校验 | ✅ | `pnpm check` = typecheck + test；附 GitHub Actions |
+| CI | ✅ | `.github/workflows/check.yml` |
+
 ## 3. 代码地图
 
 ```

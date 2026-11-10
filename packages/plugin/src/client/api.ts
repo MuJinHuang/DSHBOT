@@ -124,6 +124,16 @@ export async function deleteRoom(roomId: string): Promise<void> {
   await request<{ deleted: boolean }>(`rooms/${roomId}`, { method: 'DELETE' })
 }
 
+/** 看某个文件的变更。 */
+export async function fetchDiff(
+  roomId: string,
+  file: string
+): Promise<{ stat: string; diff: string }> {
+  return request<{ stat: string; diff: string }>(
+    `rooms/${roomId}/diff?file=${encodeURIComponent(file)}`
+  )
+}
+
 /** 批准或否决待确认的计划。 */
 export async function decidePlan(
   roomId: string,

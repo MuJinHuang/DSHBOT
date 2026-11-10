@@ -37,9 +37,36 @@ const CONTEXT_CHAR_LIMIT = 2400
 const MAX_DISPATCH = 3
 /** 同时最多跑几个派出去的 Bot。 */
 const DISPATCH_CONCURRENCY = 2
+/** 全局同时最多几个 Run（跨房间），别把宿主跑满。 */
+const GLOBAL_CONCURRENCY = 4
 
 /** 每个房间一条串行队列。 */
 const queues = new Map<string, Promise<unknown>>()
+
+/** 全局在跑的 Run 数与等待队列。 */
+let running = 0
+const waiting: (() => void)[] = []
+
+/**
+ * 全局并发闸门：超过上限就排队，避免多个房间同时把宿主压满。
+ *
+ * @returns 释放函数
+ */
+async function acquireSlot(): Promise<() => void> {
+  if (running >= GLOBAL_CONCURRENCY) {
+    await new Promise<void>((resolve) => waiting.push(resolve))
+  }
+  running += 1
+
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    running -= 1
+    const next = waiting.shift()
+    if (next !== undefined) next()
+  }
+}
 
 /** 房间 → 当前活跃 run 的取消函数。用于「停止」。 */
 const activeCancels = new Map<string, Set<() => void>>()
@@ -295,6 +322,7 @@ async function runMember(
   saveDb(started)
 
   let untrack: (() => void) | undefined
+  const release = await acquireSlot()
 
   try {
     const room = started.rooms.find((r) => r.id === roomId)!
@@ -368,6 +396,7 @@ async function runMember(
     saveDb(broken)
     return { messages: [note] }
   } finally {
+    release()
     untrack?.()
     clearLive(roomId, member.botId)
   }
@@ -459,8 +488,24 @@ export function snapshotWorkspace(dir: string, label: string): string | undefine
   }
 }
 
-/** 列出工作区最近的版本。 */
-export function listVersions(dir: string): { hash: string; subject: string; date: string }[] {
+/**
+ * 看某个文件相对上次快照改了什么。
+ *
+ * @param dir - 工作区
+ * @param file - 相对路径
+ */
+export function fileDiff(dir: string, file: string): { stat: string; diff: string } {
+  try {
+    ensureRepo(dir)
+    const stat = git(dir, ['diff', '--stat', 'HEAD', '--', file]).trim()
+    const diff = git(dir, ['diff', 'HEAD', '--', file])
+    return { stat, diff: diff.length > 6000 ? diff.slice(0, 6000) + '\n…（已截断）' : diff }
+  } catch {
+    return { stat: '', diff: '' }
+  }
+}
+
+/** 列出工作区最近的版本。 */export function listVersions(dir: string): { hash: string; subject: string; date: string }[] {
   try {
     ensureRepo(dir)
     const out = git(dir, ['log', '-n', '20', '--pretty=format:%h%x09%s%x09%ad', '--date=iso'])

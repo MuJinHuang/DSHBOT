@@ -1,4 +1,5 @@
-import { createElement as h, useCallback, useEffect, useState } from 'react'
+import { Component, createElement as h, useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { Delivery, Member, Message, Room } from '@dshbot/core'
 import {
   addMember,
@@ -14,14 +15,63 @@ import {
   updateRoom,
   listVersions,
   rollback,
-  decidePlan
+  decidePlan,
+  fetchDiff
 } from './api'
 import type { VersionEntry } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
 import { parseBlocks, parseInline } from '@dshbot/core/blocks'
 
 /**
- * 房间页。
+ * 错误边界：一个渲染异常不该让整个页面变白。
+ *
+ * React 只在 class 组件上支持这个，所以这里破例用 class。
+ */
+export class RoomsBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error }
+  }
+
+  override render(): ReactNode {
+    if (this.state.error !== null) {
+      return h(
+        'div',
+        { style: { padding: 24, fontSize: 13, lineHeight: 1.8 } },
+        h('div', { style: { fontSize: 15, marginBottom: 8 } }, '房间页出错了'),
+        h(
+          'div',
+          { style: { color: MUTED, marginBottom: 12, fontFamily: 'Consolas, monospace' } },
+          this.state.error.message
+        ),
+        h(
+          'button',
+          {
+            onClick: () => this.setState({ error: null }),
+            style: {
+              padding: '6px 14px',
+              borderRadius: 6,
+              border: LINE,
+              background: 'transparent',
+              color: 'inherit',
+              fontSize: 12,
+              fontFamily: 'inherit',
+              cursor: 'pointer'
+            }
+          },
+          '重试'
+        )
+      )
+    }
+    return this.props.children
+  }
+}
+
+/** 房间页。
  *
  * M0-3 范围：建房、列房间、在房间里说话并看到 Bot 回话。
  * 工具动作折叠、状态灯、审批在后续里程碑接。
@@ -564,10 +614,31 @@ function MessageRow(props: { message: Message; member?: Member }) {
 }
 
 /** 交付结论面板。 */
-function DeliveryPanel(props: { delivery: Delivery }) {
+function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
   const { delivery } = props
   const passed = delivery.checks.filter((c) => c.verdict === 'pass').length
   const icon = (v: string) => (v === 'pass' ? '✅' : v === 'fail' ? '❌' : '❓')
+  const [openFile, setOpenFile] = useState<string | null>(null)
+  const [openDiff, setOpenDiff] = useState<{ stat: string; diff: string } | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
+
+  const onOpenFile = async (file: string): Promise<void> => {
+    if (openFile === file) {
+      setOpenFile(null)
+      setOpenDiff(null)
+      return
+    }
+    setOpenFile(file)
+    setOpenDiff(null)
+    setDiffLoading(true)
+    try {
+      setOpenDiff(await fetchDiff(props.roomId, file))
+    } catch {
+      setOpenDiff({ stat: '', diff: '（读取失败）' })
+    } finally {
+      setDiffLoading(false)
+    }
+  }
 
   return h(
     'div',
@@ -607,9 +678,55 @@ function DeliveryPanel(props: { delivery: Delivery }) {
       'div',
       { style: { color: MUTED, fontSize: 11, marginTop: 8, borderTop: LINE, paddingTop: 6 } },
       `变更文件 ${delivery.changedFiles.length} 个` +
-        (delivery.changedFiles.length === 0 ? '' : '：' + delivery.changedFiles.slice(0, 6).join('、')) +
         `　·　本次验收花费 ${formatTokens(delivery.tokensUsed)}`
-    )
+    ),
+    delivery.changedFiles.length === 0
+      ? null
+      : h(
+          'div',
+          { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 } },
+          ...delivery.changedFiles.slice(0, 8).map((file) =>
+            h(
+              'button',
+              {
+                key: file,
+                onClick: () => void onOpenFile(file),
+                style: {
+                  padding: '2px 8px',
+                  borderRadius: 5,
+                  border: LINE,
+                  background: openFile === file ? 'rgba(47,111,237,0.16)' : 'transparent',
+                  color: 'inherit',
+                  fontSize: 11,
+                  fontFamily: 'Consolas, monospace',
+                  cursor: 'pointer'
+                }
+              },
+              file
+            )
+          )
+        ),
+    openFile === null
+      ? null
+      : h(
+          'pre',
+          {
+            style: {
+              marginTop: 8,
+              marginBottom: 0,
+              padding: '8px 10px',
+              borderRadius: 6,
+              background: 'rgba(0,0,0,0.28)',
+              fontFamily: 'Consolas, monospace',
+              fontSize: 11,
+              lineHeight: 1.5,
+              maxHeight: 260,
+              overflow: 'auto',
+              whiteSpace: 'pre'
+            }
+          },
+          diffLoading ? '读取中…' : openDiff?.diff || '（没有差异，或该文件不在版本里）'
+        )
   )
 }
 
@@ -974,7 +1091,7 @@ function RoomDetail(props: {
           onDecide: props.onDecidePlan
         }),
 
-    room.delivery === undefined ? null : h(DeliveryPanel, { delivery: room.delivery }),
+    room.delivery === undefined ? null : h(DeliveryPanel, { delivery: room.delivery, roomId: room.id }),
 
     h(VersionsPanel, { versions: props.versions, onRollback: props.onRollback }),
 

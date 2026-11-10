@@ -4,14 +4,20 @@
  * 构建后会包进 `window.__ModuleLoader__.load({ id, factory })`，
  * 由宿主的模块系统按需加载（见 build.mjs 的 banner/footer）。
  */
+import { createElement } from 'react'
 import type { ClientContext } from './context'
-import { RoomsIcon, RoomsPage } from './page'
+import { RoomsBoundary, RoomsIcon, RoomsPage } from './page'
 
 /** 与侧栏入口共用的 id，两边必须一致。 */
 export const PANEL_ID = 'rooms'
 
 /** 需要的客户端服务。 */
 export const inject = ['slots', 'layout']
+
+/** 房间页外面套一层错误边界，渲染炸了也不至于白屏。 */
+function SafeRoomsPage() {
+  return createElement(RoomsBoundary, null, createElement(RoomsPage))
+}
 
 /**
  * 注册房间页与侧栏入口。
@@ -23,7 +29,7 @@ export const inject = ['slots', 'layout']
  */
 export function apply(ctx: ClientContext): void {
   ctx.slots.inject('main', () =>
-    ctx.slots.register({ name: 'main', key: PANEL_ID }, RoomsPage as never)
+    ctx.slots.register({ name: 'main', key: PANEL_ID }, SafeRoomsPage as never)
   )
 
   ctx.slots.inject('sidebar.panellist', () =>

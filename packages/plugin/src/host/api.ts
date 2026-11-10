@@ -16,7 +16,7 @@ import { newId, nowIso, parseMentions } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
-import { cancelRoom, deliverRoom, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan } from './turn.js'
+import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
@@ -399,6 +399,18 @@ export function createHandler(ctx: AgentContext) {
         }
 
         send(res, 400, { error: `未知动作：${action}` })
+        return
+      }
+
+      // ---- /rooms/:id/diff（看单个文件的变更）----
+      if (parts.length === 3 && parts[2] === 'diff' && method === 'GET') {
+        const file = url.searchParams.get('file') ?? ''
+        if (file.trim() === '') {
+          send(res, 400, { error: 'file 不能为空' })
+          return
+        }
+        const dir = room.workspaceDir ?? join(roomsRoot(), roomId, 'work')
+        send(res, 200, fileDiff(dir, file))
         return
       }
 
