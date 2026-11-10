@@ -13,14 +13,15 @@ import { newId, nowIso } from '@dshbot/core'
 import {
   extractFiles,
   parseChecks,
+  parseCheckSpec,
   parseGitStatus,
   parseMentions,
   resolveTargets,
   summarizeArgs
 } from '@dshbot/core'
-import type { Delivery, Member, Message, Room } from '@dshbot/core'
-import { execFileSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import type { Delivery, DeliveryCheck, Member, Message, Room } from '@dshbot/core'
+import { execFileSync, execSync } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { runOnce } from './agent.js'
 import type { AgentContext, RunOutcome } from './agent.js'
@@ -376,6 +377,115 @@ function changedFiles(dir: string): string[] {
   }
 }
 
+// ---------------- 工作区版本（git 快照） ----------------
+
+/** 跑一条 git 命令，返回 stdout。 */
+function git(dir: string, args: string[]): string {
+  return execFileSync('git', args, { cwd: dir, encoding: 'utf8', timeout: 15000 })
+}
+
+/**
+ * 确保工作区是个 git 仓库。
+ *
+ * 用 git 做版本链，比自己维护文件副本可靠得多：每次运行前自动提交一次，
+ * 回滚就是 `reset --hard`，历史也天然可查。
+ *
+ * @param dir - 工作区
+ */
+export function ensureRepo(dir: string): void {
+  try {
+    if (existsSync(join(dir, '.git'))) return
+    mkdirSync(dir, { recursive: true })
+    git(dir, ['init'])
+    git(dir, ['config', 'user.email', 'dshbot@local'])
+    git(dir, ['config', 'user.name', 'DSHBot'])
+    git(dir, ['commit', '--allow-empty', '-m', '初始状态'])
+  } catch {
+    /* 没有 git 也不该让房间起不来，后面的快照自然失败 */
+  }
+}
+
+/**
+ * 给工作区打一个快照。
+ *
+ * @param dir - 工作区
+ * @param label - 提交信息
+ * @returns 提交号，失败返回 undefined
+ */
+export function snapshotWorkspace(dir: string, label: string): string | undefined {
+  try {
+    ensureRepo(dir)
+    git(dir, ['add', '-A'])
+    git(dir, ['commit', '--allow-empty', '-m', label])
+    return git(dir, ['rev-parse', '--short', 'HEAD']).trim()
+  } catch {
+    return undefined
+  }
+}
+
+/** 列出工作区最近的版本。 */
+export function listVersions(dir: string): { hash: string; subject: string; date: string }[] {
+  try {
+    ensureRepo(dir)
+    const out = git(dir, ['log', '-n', '20', '--pretty=format:%h%x09%s%x09%ad', '--date=iso'])
+    return out
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => {
+        const [hash = '', subject = '', date = ''] = line.split('\t')
+        return { hash, subject, date }
+      })
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 回滚到某个版本；回滚前先把当前状态提交一次，别把工作丢了。
+ *
+ * @param dir - 工作区
+ * @param hash - 目标提交
+ */
+export function rollbackWorkspace(dir: string, hash: string): boolean {
+  try {
+    snapshotWorkspace(dir, `回滚前快照 ${nowIso()}`)
+    git(dir, ['reset', '--hard', hash])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 直接判定一条可机器验证的验收点；自由文本交给模型。
+ *
+ * @param dir - 工作区
+ * @param line - 验收标准原文
+ */
+function runDeterministicCheck(dir: string, line: string): DeliveryCheck | null {
+  const spec = parseCheckSpec(line)
+  if (spec.kind === 'file') {
+    const full = join(dir, spec.value)
+    const ok = existsSync(full)
+    return {
+      point: line,
+      verdict: ok ? 'pass' : 'fail',
+      reason: ok ? `文件存在：${spec.value}` : `文件不存在：${spec.value}`
+    }
+  }
+  if (spec.kind === 'cmd') {
+    try {
+      execSync(spec.value, { cwd: dir, encoding: 'utf8', timeout: 30_000, stdio: 'pipe' })
+      return { point: line, verdict: 'pass', reason: `命令退出码 0：${spec.value}` }
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message.replace(/\s+/g, ' ').slice(0, 160) : '未知错误'
+      return { point: line, verdict: 'fail', reason: `命令失败：${spec.value}（${detail}）` }
+    }
+  }
+  return null
+}
+
 /**
  * 交付：看工作区变了什么，再让总管逐条判定验收点。
  *
@@ -403,12 +513,16 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
     })
     .join('\n\n')
 
+  // 先跑能机器判定的（file: / cmd:），剩下的才请模型
+  const deterministicChecks = room.acceptance.map((line) => runDeterministicCheck(dir, line))
+  const textPoints = room.acceptance.filter((_, index) => deterministicChecks[index] === null)
+
   const judge = [
     '你是验收人。**禁止调用任何工具**（不许 read / bash / glob 之类），材料已经全部给你了，直接判断。',
     `房间：${room.name}`,
     `目标：${room.goal}`,
     '验收标准：',
-    ...room.acceptance.map((a, i) => `${i + 1}. ${a}`),
+    ...textPoints.map((a, i) => `${i + 1}. ${a}`),
     '',
     '房间最近动态（含执行者的产出摘要）：',
     recent,
@@ -428,31 +542,59 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
     (room.members ?? []).find((m) => m.role === 'host') ?? (room.members ?? [])[0]
   if (judgeMember === undefined) throw new Error('房间里还没有 Bot，无法验收')
 
-  // 用全新会话判：避免验收人的历史里塞满工具调用，导致它习惯性又去翻文件
-  const outcome = await runOnce(ctx, judge, dir)
-  let checks = parseChecks(outcome.text, room.acceptance)
-  let spend = outcome.usage.total
-  let sessionId = judgeMember.sessionId ?? outcome.sessionId
+  let judged: DeliveryCheck[] = []
+  let spend = 0
+  let sessionId = judgeMember.sessionId
   let lastSeq = judgeMember.sessionSeq ?? 0
 
-  // 一条都没判出来，说明格式没跟上；再要一次，这次只许给 JSON
-  if (checks.every((c) => c.verdict === 'unsure')) {
-    const retry = [
-      '上一次你的回答不是合法 JSON。这次只输出一个 JSON 数组，不要任何解释、不要代码块。',
-      `数组长度必须是 ${room.acceptance.length}，第 i 个元素对应第 i 条验收标准：`,
-      ...room.acceptance.map((a, i) => `${i + 1}. ${a}`),
-      '元素格式：{"verdict":"pass"|"fail"|"unsure","reason":"一句话理由"}'
-    ].join('\n')
-    try {
-      const second = await runOnce(ctx, retry, dir)
-      const retried = parseChecks(second.text, room.acceptance)
-      if (retried.some((c) => c.verdict !== 'unsure')) {
-        checks = retried
-        spend += second.usage.total
+  // 全部验收点都能机器判定时，不必请模型，省一轮钱和时间
+  if (textPoints.length > 0) {
+    // 用全新会话判：避免验收人的历史里塞满工具调用，导致它习惯性又去翻文件
+    const outcome = await runOnce(ctx, judge, dir)
+    judged = parseChecks(outcome.text, textPoints)
+    spend += outcome.usage.total
+    sessionId = judgeMember.sessionId ?? outcome.sessionId
+    lastSeq = judgeMember.sessionSeq ?? 0
+
+    // 一条都没判出来，说明格式没跟上；再要一次，这次只许给 JSON
+    if (judged.every((c) => c.verdict === 'unsure')) {
+      const retry = [
+        '上一次你的回答不是合法 JSON。这次只输出一个 JSON 数组，不要任何解释、不要代码块。',
+        `数组长度必须是 ${textPoints.length}，第 i 个元素对应第 i 条验收标准：`,
+        ...textPoints.map((a, i) => `${i + 1}. ${a}`),
+        '元素格式：{"verdict":"pass|fail|unsure","reason":"一句话理由"}'
+      ].join('\n')
+      try {
+        const second = await runOnce(ctx, retry, dir)
+        const retried = parseChecks(second.text, textPoints)
+        if (retried.some((c) => c.verdict !== 'unsure')) {
+          judged = retried
+          spend += second.usage.total
+        }
+      } catch {
+        /* 重试也失败就保留存疑结论 */
       }
-    } catch {
-      /* 重试也失败就保留存疑结论 */
     }
+  }
+
+  // 按原始顺序合并：能机器判的用机器结论，其余用模型结论
+  const checks: DeliveryCheck[] = []
+  let cursor = 0
+  for (let index = 0; index < room.acceptance.length; index += 1) {
+    const deterministic = deterministicChecks[index]
+    if (deterministic !== null && deterministic !== undefined) {
+      checks.push(deterministic)
+      continue
+    }
+    const next = judged[cursor]
+    cursor += 1
+    checks.push(
+      next ?? {
+        point: room.acceptance[index] ?? '',
+        verdict: 'unsure',
+        reason: '模型没有给出判定'
+      }
+    )
   }
 
   const passed = checks.filter((c) => c.verdict === 'pass').length
@@ -542,6 +684,9 @@ export async function handleRoomMessage(
       saveDb(db2)
       return { messages: [userMessage, hint], skipped: true }
     }
+
+    // 跑之前先给工作区打个快照，出问题能退回来
+    snapshotWorkspace(workspaceOf(room), `运行前快照 ${nowIso()}`)
 
     const produced: Message[] = [userMessage]
 

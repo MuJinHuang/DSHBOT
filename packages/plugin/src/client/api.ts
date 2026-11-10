@@ -124,6 +124,27 @@ export async function deleteRoom(roomId: string): Promise<void> {
   await request<{ deleted: boolean }>(`rooms/${roomId}`, { method: 'DELETE' })
 }
 
+/** 版本列表。 */
+export interface VersionEntry {
+  hash: string
+  subject: string
+  date: string
+}
+
+export async function listVersions(roomId: string): Promise<VersionEntry[]> {
+  const data = await request<{ versions: VersionEntry[] }>(`rooms/${roomId}/versions`)
+  return data.versions
+}
+
+/** 回滚到某个版本。 */
+export async function rollback(roomId: string, hash: string): Promise<boolean> {
+  const data = await request<{ ok: boolean }>(`rooms/${roomId}/versions`, {
+    method: 'POST',
+    body: JSON.stringify({ hash })
+  })
+  return data.ok
+}
+
 /** 接管 / 交还。 */
 export async function takeover(
   roomId: string,

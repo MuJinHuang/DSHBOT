@@ -133,6 +133,30 @@ export function parseChecks(raw: string, points: string[]): DeliveryCheck[] {
 }
 
 /**
+ * 验收标准的三种形态。
+ *
+ * - `file:路径`  文件必须存在
+ * - `cmd:命令`   命令必须以退出码 0 结束
+ * - 其它          交给模型判（自由文本）
+ */
+export type CheckSpec =
+  | { kind: 'file'; value: string }
+  | { kind: 'cmd'; value: string }
+  | { kind: 'text'; value: string }
+
+/**
+ * 解析一条验收标准，判断它是可机器验证的谓词还是自由文本。
+ *
+ * @param line - 一条验收标准
+ */
+export function parseCheckSpec(line: string): CheckSpec {
+  const text = line.trim()
+  if (text.startsWith('file:')) return { kind: 'file', value: text.slice(5).trim() }
+  if (text.startsWith('cmd:')) return { kind: 'cmd', value: text.slice(4).trim() }
+  return { kind: 'text', value: text }
+}
+
+/**
  * 解析 `git status --porcelain` 的输出，取出变更路径。
  *
  * porcelain 每行是 `XY path`：前两位是状态码，第 3 位起是路径。

@@ -15,6 +15,8 @@ export {
   summarizeArgs,
   normalizeVerdict,
   parseChecks,
+  parseCheckSpec,
   parseGitStatus
 } from './parse.js'
+export type { CheckSpec } from './parse.js'
 export { buildMarkdown } from './markdown.js'

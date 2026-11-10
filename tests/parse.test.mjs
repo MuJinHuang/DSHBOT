@@ -12,6 +12,7 @@ import {
   extractFiles,
   normalizeVerdict,
   parseChecks,
+  parseCheckSpec,
   parseGitStatus,
   parseMentions,
   resolveTargets,
@@ -176,4 +177,22 @@ test('parseGitStatus：切掉两位状态码，路径不能少字母', () => {
 
 test('parseGitStatus：空输出返回空数组', () => {
   assert.deepEqual(parseGitStatus(''), [])
+})
+
+test('parseCheckSpec：file: / cmd: 与自由文本分流', () => {
+  assert.deepEqual(parseCheckSpec('file:README.md'), { kind: 'file', value: 'README.md' })
+  assert.deepEqual(parseCheckSpec('cmd:node --version'), { kind: 'cmd', value: 'node --version' })
+  assert.deepEqual(parseCheckSpec('提到 M0 的完成情况'), {
+    kind: 'text',
+    value: '提到 M0 的完成情况'
+  })
+})
+
+test('parseCheckSpec：前后空格与空值', () => {
+  assert.deepEqual(parseCheckSpec('  file: a.txt  '), { kind: 'file', value: 'a.txt' })
+  assert.deepEqual(parseCheckSpec(''), { kind: 'text', value: '' })
+})
+
+test('parseCheckSpec：只认小写前缀，别的算文本', () => {
+  assert.equal(parseCheckSpec('File:README.md').kind, 'text')
 })

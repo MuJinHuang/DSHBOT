@@ -16,7 +16,7 @@ import { newId, nowIso, parseMentions } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
-import { cancelRoom, deliverRoom, handleRoomMessage, makeMessage } from './turn.js'
+import { cancelRoom, deliverRoom, handleRoomMessage, listVersions, makeMessage, rollbackWorkspace } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
@@ -389,6 +389,36 @@ export function createHandler(ctx: AgentContext) {
         }
 
         send(res, 400, { error: `未知动作：${action}` })
+        return
+      }
+
+      // ---- /rooms/:id/versions（版本列表 / 回滚）----
+      if (parts.length === 3 && parts[2] === 'versions') {
+        const dir = room.workspaceDir ?? join(roomsRoot(), roomId, 'work')
+        if (method === 'GET') {
+          send(res, 200, { versions: listVersions(dir) })
+          return
+        }
+        if (method === 'POST') {
+          const input = (await readJson(req)) as { hash?: unknown }
+          if (!isNonEmptyString(input.hash)) {
+            send(res, 400, { error: 'hash 不能为空' })
+            return
+          }
+          const ok = rollbackWorkspace(dir, input.hash.trim())
+          const note = makeMessage(
+            roomId,
+            'system',
+            'system',
+            ok ? `已回滚到版本 ${input.hash.trim()}` : `回滚失败：${input.hash.trim()}`
+          )
+          const db = loadDb()
+          db.messages.push(note)
+          saveDb(db)
+          send(res, ok ? 200 : 500, { ok, versions: listVersions(dir), messages: [note] })
+          return
+        }
+        send(res, 405, { error: 'method not allowed' })
         return
       }
 

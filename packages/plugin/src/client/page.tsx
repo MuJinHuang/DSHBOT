@@ -11,8 +11,11 @@ import {
   setRoomState,
   stop,
   takeover,
-  updateRoom
+  updateRoom,
+  listVersions,
+  rollback
 } from './api'
+import type { VersionEntry } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
 
 /**
@@ -196,10 +199,12 @@ function CreateForm(props: {
       h('textarea', {
         value: acceptance,
         onChange: (e: { target: { value: string } }) => setAcceptance(e.target.value),
-        placeholder: '暗色主题下对比度符合 WCAG AA\n现有测试全绿',
+        placeholder: 'file:dist/index.html\ncmd:pnpm test\n暗色主题下对比度符合 WCAG AA',
         rows: 3,
         style: { ...inputStyle, resize: 'vertical' }
-      })
+      }),
+      h('div', { style: { fontSize: 11, color: MUTED, marginTop: 6, lineHeight: 1.6 } },
+        'file:路径 = 文件必须存在；cmd:命令 = 退出码必须为 0；其余交给模型判。')
     ),
 
     error
@@ -465,6 +470,68 @@ function DeliveryPanel(props: { delivery: Delivery }) {
   )
 }
 
+/** 版本列表：每条都能回滚。 */
+function VersionsPanel(props: {
+  versions: VersionEntry[]
+  onRollback: (hash: string) => void
+}) {
+  const [pending, setPending] = useState<string | null>(null)
+  if (props.versions.length === 0) return null
+
+  return h(
+    'div',
+    { style: { marginBottom: 16 } },
+    h(SectionTitle, {}, '版本'),
+    ...props.versions.map((version) =>
+      h(
+        'div',
+        {
+          key: version.hash,
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 11.5,
+            padding: '4px 0',
+            borderBottom: LINE
+          }
+        },
+        h('code', { style: { color: MUTED, minWidth: 54 } }, version.hash),
+        h(
+          'div',
+          { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+          version.subject
+        ),
+        h(
+          'button',
+          {
+            onClick: () => {
+              if (pending !== version.hash) {
+                setPending(version.hash)
+                return
+              }
+              setPending(null)
+              props.onRollback(version.hash)
+            },
+            style: {
+              padding: '2px 8px',
+              borderRadius: 5,
+              border: LINE,
+              background: 'transparent',
+              color: pending === version.hash ? '#e5484d' : MUTED,
+              fontSize: 11,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              flexShrink: 0
+            }
+          },
+          pending === version.hash ? '确认回滚' : '回滚'
+        )
+      )
+    )
+  )
+}
+
 /** 房间详情：目标 + 验收 + 消息流 + 输入框。 */
 function RoomDetail(props: {
   room: Room
@@ -480,6 +547,8 @@ function RoomDetail(props: {
   onEdit: (input: { name: string; goal: string; acceptance: string[] }) => void
   onDelete: () => void
   onExport: () => void
+  versions: VersionEntry[]
+  onRollback: (hash: string) => void
 }) {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
@@ -596,6 +665,11 @@ function RoomDetail(props: {
           }),
           h(
             'div',
+            { style: { fontSize: 11, color: MUTED, lineHeight: 1.6 } },
+            '想让它机器判定，就写成 file:路径 或 cmd:命令；其余交给模型判。'
+          ),
+          h(
+            'div',
             { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
             h(
               'button',
@@ -673,6 +747,8 @@ function RoomDetail(props: {
     ),
 
     room.delivery === undefined ? null : h(DeliveryPanel, { delivery: room.delivery }),
+
+    h(VersionsPanel, { versions: props.versions, onRollback: props.onRollback }),
 
     h(SectionTitle, { key: 'm' }, '消息流'),
     h(
@@ -1024,8 +1100,7 @@ export function RoomsPage() {
 
   // 交付验收
   const runDelivery = useCallback(async () => {
-    if (selectedId === null) return
-    setDelivering(true)
+    if (selectedId === null) return    setDelivering(true)
     setSendError(null)
     try {
       const delivery = await deliver(selectedId)
@@ -1070,9 +1145,44 @@ export function RoomsPage() {
     }
   }, [selectedId])
 
+  // 版本：读列表 + 回滚
+  const [versions, setVersions] = useState<VersionEntry[]>([])
+
+  useEffect(() => {
+    if (selectedId === null) {
+      setVersions([])
+      return
+    }
+    let cancelled = false
+    void listVersions(selectedId)
+      .then((list) => {
+        if (!cancelled) setVersions(list)
+      })
+      .catch(() => {
+        if (!cancelled) setVersions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId, messages.length])
+
+  const doRollback = useCallback(
+    async (hash: string) => {
+      if (selectedId === null) return
+      try {
+        await rollback(selectedId, hash)
+        setMessages(await listMessages(selectedId))
+        setVersions(await listVersions(selectedId))
+        setSendError(null)
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : '回滚失败')
+      }
+    },
+    [selectedId]
+  )
+
   // 改房间
-  const editRoom = useCallback(
-    async (input: { name: string; goal: string; acceptance: string[] }) => {
+  const editRoom = useCallback(    async (input: { name: string; goal: string; acceptance: string[] }) => {
       if (selectedId === null) return
       try {
         const room = await updateRoom(selectedId, input)
@@ -1226,7 +1336,9 @@ export function RoomsPage() {
                 onEdit: (input: { name: string; goal: string; acceptance: string[] }) =>
                   void editRoom(input),
                 onDelete: () => void removeRoom(),
-                onExport: () => exportRoom()
+                onExport: () => exportRoom(),
+                versions,
+                onRollback: (hash: string) => void doRollback(hash)
               })
             : h(
                 'div',
