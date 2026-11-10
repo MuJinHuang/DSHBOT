@@ -95,3 +95,29 @@ test('没有交付时不出现交付章节', () => {
   const md = buildMarkdown(room, messages, new Date('2026-11-10T00:00:00Z'))
   assert.ok(!md.includes('## 交付结论'))
 })
+
+test('同一件事的一开一关两张卡，只导出最后一张', () => {
+  const cards = [
+    {
+      id: 'c1',
+      roomId: 'room_x',
+      kind: 'assignment',
+      from: 'bot_host',
+      text: '阿岚 → 小柯：写摘要',
+      payload: { to: '小柯', title: '写摘要', status: 'pending' },
+      createdAt: ''
+    },
+    {
+      id: 'c2',
+      roomId: 'room_x',
+      kind: 'assignment',
+      from: 'bot_host',
+      text: '阿岚 → 小柯：写摘要',
+      payload: { to: '小柯', title: '写摘要', status: 'done' },
+      createdAt: ''
+    }
+  ]
+  const md = buildMarkdown(room, cards, new Date('2026-11-10T00:00:00Z'))
+  const hits = md.split('\n').filter((line) => line.includes('阿岚 → 小柯'))
+  assert.equal(hits.length, 1, '只应出现一次')
+})

@@ -52,8 +52,19 @@ export function buildMarkdown(
   lines.push('')
 
   lines.push('## 对话', '')
-  for (const message of messages) {
-    if (message.kind === 'tool') continue
+
+  // 同一件事会有一开一关两张任务卡，导出只留最后那张（带最终状态与结论）
+  const lastCard = new Map<string, number>()
+  messages.forEach((message, index) => {
+    if (message.kind !== 'assignment') return
+    const payload = (message.payload ?? {}) as { to?: unknown; title?: unknown }
+    lastCard.set(`${String(payload.to ?? '')}\u0000${String(payload.title ?? '')}`, index)
+  })
+  const keepCard = new Set(lastCard.values())
+
+  messages.forEach((message, index) => {
+    if (message.kind === 'tool') return
+    if (message.kind === 'assignment' && !keepCard.has(index)) return
     const who =
       message.kind === 'human'
         ? '我'
@@ -63,7 +74,7 @@ export function buildMarkdown(
             ? '任务卡'
             : ((room.members ?? []).find((m) => m.botId === message.botId)?.name ?? 'Bot')
     lines.push(`**${who}**：${message.text.replace(/\n/g, '  ')}`, '')
-  }
+  })
 
   lines.push('---', '', `由 DSHBot 导出（${now.toISOString().slice(0, 10)}），房间 ${room.id}`)
   return lines.join('\n')
