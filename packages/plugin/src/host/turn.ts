@@ -255,7 +255,7 @@ export function buildContext(room: Room, member: Member, task: string): string {
     `成员：${members.join('、')}`,
     member.role === 'host'
       ? '你是本房间的总管：先用 1-2 次工具确认现状，然后给出结论；该派人做的用 @名字 派活，派活时把要求写清楚。不要自己深挖细节。**不要调用 subagent 工具**——房间里的人要用 @名字 指派，不用子代理。**只派真正需要动手的活**：像「待命」「收到请回」这种不要派成任务（那会白烧一轮钱），直接说一句就行。'
-      : `你是执行 Bot「${member.name}」：只做分给你的那一件事，最多用 5 次工具，够用就下结论。必须给出一段文字结论，不要只调工具不说话。不要调用 subagent 工具。`,
+      : `你是执行 Bot「${member.name}」：只做分给你的那一件事，最多用 5 次工具，够用就下结论。必须给出一段文字结论，不要只调工具不说话。不要调用 subagent 工具。如果你要跑 pnpm / npm 之类的构建命令却报 spawn EPERM，那是沙箱限制，**别重试**，直接把结论交回来——构建和验收由房间负责。`,
     ...(member.files === undefined || member.files.length === 0
       ? []
       : [`你负责的文件：${member.files.join('、')}。不要动别人的文件。`])
