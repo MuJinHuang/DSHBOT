@@ -697,6 +697,16 @@ function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
       `变更文件 ${delivery.changedFiles.length} 个` +
         `　·　本次验收花费 ${formatTokens(delivery.tokensUsed)}`
     ),
+    // 全是文字判定又没改文件：提醒一句，否则"说做了"就等于"做了"
+    delivery.changedFiles.length === 0 &&
+    !delivery.checks.some((check) => /^(file|cmd):/.test(check.point))
+      ? h(
+          'div',
+          { style: { color: '#e8a33d', fontSize: 11, marginTop: 6, lineHeight: 1.6 } },
+          '这次验收全是文字判定，工作区没有变更——Bot 说"写好了"但可能没真写。' +
+            '要文件就用 file:路径 当验收条件。'
+        )
+      : null,
     delivery.changedFiles.length === 0
       ? null
       : h(
