@@ -31,7 +31,7 @@ export interface DshbotConfig {
 /** 读配置；文件不存在或坏了都返回空对象，不阻断主流程。 */
 export function loadConfig(): DshbotConfig {
   try {
-    const raw = readFileSync(join(dshHome(), 'dshbot', 'config.json'), 'utf8')
+    const raw = readFileSync(join(dataRoot(), 'config.json'), 'utf8')
     const parsed = JSON.parse(raw) as unknown
     return typeof parsed === 'object' && parsed !== null ? (parsed as DshbotConfig) : {}
   } catch {
@@ -46,14 +46,27 @@ function dshHome(): string {
   return process.env.DSH_HOME ?? join(homedir(), '.dsh')
 }
 
+/**
+ * 数据根目录。
+ *
+ * 默认 `~/.dsh/dshbot`。开发时用 `DSHBOT_DATA_DIR` 指到临时目录——
+ * 否则 dev 实例和桌面端会**同时写同一个 rooms.json**，互相覆盖。
+ */
+function dataRoot(): string {
+  const override = process.env.DSHBOT_DATA_DIR
+  return override !== undefined && override.trim() !== ''
+    ? override.trim()
+    : join(dshHome(), 'dshbot')
+}
+
 /** 数据文件路径。 */
 export function dataFile(): string {
-  return join(dshHome(), 'dshbot', 'rooms.json')
+  return join(dataRoot(), 'rooms.json')
 }
 
 /** 房间目录的根：每个房间在这里有自己的工作区。 */
 export function roomsRoot(): string {
-  return join(dshHome(), 'dshbot', 'rooms')
+  return join(dataRoot(), 'rooms')
 }
 
 /**
