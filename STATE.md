@@ -6,6 +6,46 @@
 
 ---
 
+## 0. 无人值守协作约定（重要）
+
+这一段写给"人不在电脑旁、由 Agent 连续工作"的情形。前几次都是这么跑的，踩过的坑都在这。
+
+**① Agent 不能重启宿主。**
+Agent 跑在 DSH 进程里，重启 = 杀掉自己，那一轮工作会从中间断。所以：
+
+- 开发、验证一律在**独立实例** `dshbot-dev`（端口 54873）上做，Agent 可以随便起停；
+- 桌面端只在最后 `pnpm install:profile`，**等用户回来重启**。
+
+**② 两个实例必须用不同数据目录。**
+否则同时写 `rooms.json` 会互相覆盖。开发实例这样起：
+
+```powershell
+$env:DSHBOT_DATA_DIR = "$env:TEMP\dshbot-dev-data"
+dsh --profile dshbot-dev --port 54873 --no-open
+```
+
+桌面端继续用 `~/.dsh/dshbot`，两边互不干扰（实测：隔离实例写 1 个房间，桌面端数据一字未动）。
+
+**③ 每完成一项就提交，不留大块未提交改动。**
+断线（桌面端被关、机器睡眠）随时可能发生；`git log` 是唯一的恢复锚点。
+
+**④ 文档与代码同步提交。**
+第二轮实测的教训：`TASKS.md` 过期时，房间里的 Bot 会把过期状态当真汇报——**文档就是事实来源**。
+
+**⑤ 收尾清单（Agent 自己做完）**
+
+```powershell
+pnpm check            # 类型 + 构建 + 测试
+pnpm install:profile  # 装进 desktop profile（此时还没生效）
+git log --oneline -5  # 确认都在
+```
+
+**⑥ 用户回来后只需一步**：`powershell -File scripts\restart-dsh.ps1`（或手动重开 DSH）。
+
+**⑦ 断线后怎么接**：`git log --oneline -10` 找到最后一个提交 → 读 `TASKS.md` 与本文 → 从"下一步"继续，不重做已完成部分。
+
+---
+
 ## 1. 现在能跑什么
 
 DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
