@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { auditRecords, newId, normalizeAcceptanceLine, nowIso, parseMentions, toJsonl } from '@dshbot/core'
+import { auditRecords, makeBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
@@ -20,6 +20,34 @@ import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liv
 
 /** 前缀，必须与注册时一致。 */
 export const API_PREFIX = '/dshbot/api'
+
+/**
+ * 当前部署可选哪些 agent preset。
+ *
+ * 工具集跟 preset 走，所以「给 Bot 配工具」实际是「给 Bot 选 preset」。
+ */
+function listPresets(ctx: AgentContext): { id: string; label: string }[] {
+  const known = [
+    { id: 'standard', label: '标准（全部工具）' },
+    { id: 'ptc', label: 'PTC（程序化工具调用）' },
+    { id: 'minimal', label: '最小（不能读写文件）' },
+    { id: 'cordis', label: 'Cordis 插件开发' }
+  ]
+  try {
+    const listed = ctx.agentPresets?.list?.()
+    if (Array.isArray(listed) && listed.length > 0) {
+      return listed
+        .map((item) => {
+          const id = typeof item === 'string' ? item : String((item as { id?: unknown })?.id ?? '')
+          return known.find((entry) => entry.id === id) ?? { id, label: id }
+        })
+        .filter((entry) => entry.id !== '' && entry.id !== 'undefined')
+    }
+  } catch {
+    /* 服务不在就退回内置列表 */
+  }
+  return known
+}
 
 /** 请求体上限，防手抖。 */
 const MAX_BODY = 64 * 1024
@@ -145,6 +173,95 @@ export function createHandler(ctx: AgentContext) {
       // ---- /health ----
       if (parts.length === 1 && parts[0] === 'health') {
         send(res, 200, { ok: true })
+        return
+      }
+
+      // ---- /presets（当前部署可选的 agent preset，决定工具集）----
+      if (parts.length === 1 && parts[0] === 'presets') {
+        send(res, 200, { presets: listPresets(ctx), defaultPreset: 'standard' })
+        return
+      }
+
+      // ---- /bots（房间外的角色卡库）----
+      if (parts[0] === 'bots') {
+        if (parts.length === 1 && method === 'GET') {
+          send(res, 200, { bots: loadDb().bots })
+          return
+        }
+        // /bots/split：把一大段话拆成三块，不落库
+        if (parts.length === 2 && parts[1] === 'split' && method === 'POST') {
+          const input = (await readJson(req)) as { text?: unknown }
+          if (!isNonEmptyString(input.text)) {
+            send(res, 400, { error: 'text 不能为空' })
+            return
+          }
+          send(res, 200, splitPersona(input.text))
+          return
+        }
+        if (parts.length === 1 && method === 'POST') {
+          const input = (await readJson(req)) as Record<string, unknown>
+          if (!isNonEmptyString(input.name)) {
+            send(res, 400, { error: 'name 不能为空' })
+            return
+          }
+          // 允许直接贴一大段，服务端顺手拆开
+          const split = isNonEmptyString(input.text)
+            ? splitPersona(input.text)
+            : { persona: '', expertise: '', instructions: '' }
+          const bot = makeBot({
+            name: input.name,
+            avatar: isNonEmptyString(input.avatar) ? input.avatar : undefined,
+            persona: isNonEmptyString(input.persona)
+              ? input.persona
+              : split.persona === ''
+                ? undefined
+                : split.persona,
+            expertise: isNonEmptyString(input.expertise)
+              ? input.expertise
+              : split.expertise === ''
+                ? undefined
+                : split.expertise,
+            instructions: isNonEmptyString(input.instructions)
+              ? input.instructions
+              : split.instructions === ''
+                ? undefined
+                : split.instructions,
+            agentPreset: isNonEmptyString(input.agentPreset)
+              ? input.agentPreset.trim()
+              : undefined
+          })
+          const db = loadDb()
+          db.bots.push(bot)
+          saveDb(db)
+          send(res, 201, { bot })
+          return
+        }
+        const botId = parts[1] ?? ''
+        if (parts.length === 2 && method === 'PATCH') {
+          const input = (await readJson(req)) as Record<string, unknown>
+          const db = loadDb()
+          const target = db.bots.find((b) => b.id === botId)
+          if (target === undefined) {
+            send(res, 404, { error: '这个 Bot 不存在' })
+            return
+          }
+          for (const key of ['name', 'avatar', 'persona', 'expertise', 'instructions', 'agentPreset'] as const) {
+            if (isNonEmptyString(input[key])) target[key] = input[key].trim()
+            else if (input[key] === '') delete target[key]
+          }
+          target.updatedAt = nowIso()
+          saveDb(db)
+          send(res, 200, { bot: target })
+          return
+        }
+        if (parts.length === 2 && method === 'DELETE') {
+          const db = loadDb()
+          db.bots = db.bots.filter((b) => b.id !== botId)
+          saveDb(db)
+          send(res, 200, { deleted: true })
+          return
+        }
+        send(res, 404, { error: 'not found' })
         return
       }
 
@@ -301,35 +418,67 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
-      // ---- /rooms/:id/members（拉人）----
+      // ---- /rooms/:id/members（拉人：库里拉 或 临时加）----
       if (parts.length === 3 && parts[2] === 'members' && method === 'POST') {
         const input = (await readJson(req)) as {
           name?: unknown
           role?: unknown
           avatar?: unknown
+          defId?: unknown
+          persona?: unknown
+          expertise?: unknown
+          instructions?: unknown
+          agentPreset?: unknown
         }
-        if (!isNonEmptyString(input.name)) {
-          send(res, 400, { error: 'name 不能为空' })
-          return
-        }
-        const name = input.name.trim()
         const db = loadDb()
         const target = db.rooms.find((r) => r.id === roomId)
         if (target === undefined) {
           send(res, 404, { error: '房间不存在' })
           return
         }
+
+        // 从 Bot 库拉：把角色卡整份复制进来，之后房间内改动不影响库
+        const def = isNonEmptyString(input.defId)
+          ? db.bots.find((b) => b.id === input.defId)
+          : undefined
+        if (isNonEmptyString(input.defId) && def === undefined) {
+          send(res, 404, { error: '这个 Bot 不在库里' })
+          return
+        }
+
+        const name = (def?.name ?? (isNonEmptyString(input.name) ? input.name.trim() : ''))
+        if (name === '') {
+          send(res, 400, { error: 'name 不能为空' })
+          return
+        }
         if ((target.members ?? []).some((m) => m.name === name)) {
           send(res, 409, { error: `房间里已经有「${name}」了` })
           return
         }
+
+        const pick = (fromInput: unknown, fromDef: string | undefined): string | undefined =>
+          isNonEmptyString(fromInput) ? fromInput.trim() : fromDef
+
         const member: Member = {
           botId: newId('bot'),
           name,
           role: input.role === 'host' ? 'host' : 'worker',
-          avatar: isNonEmptyString(input.avatar) ? input.avatar : '🤖',
+          avatar: pick(input.avatar, def?.avatar) ?? '🤖',
           status: 'idle',
-          tokensUsed: 0
+          tokensUsed: 0,
+          ...(def === undefined ? {} : { defId: def.id }),
+          ...(pick(input.persona, def?.persona) === undefined
+            ? {}
+            : { persona: pick(input.persona, def?.persona) }),
+          ...(pick(input.expertise, def?.expertise) === undefined
+            ? {}
+            : { expertise: pick(input.expertise, def?.expertise) }),
+          ...(pick(input.instructions, def?.instructions) === undefined
+            ? {}
+            : { instructions: pick(input.instructions, def?.instructions) }),
+          ...(pick(input.agentPreset, def?.agentPreset) === undefined
+            ? {}
+            : { agentPreset: pick(input.agentPreset, def?.agentPreset) })
         }
         target.members = [...(target.members ?? []), member]
         target.updatedAt = nowIso()

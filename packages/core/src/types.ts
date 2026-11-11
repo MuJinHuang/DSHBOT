@@ -87,6 +87,16 @@ export interface Member {
   tokensUsed: number
   /** 软写锁：本 Bot 声明负责的文件路径，别人不要再动。 */
   files?: string[]
+  /** 来自哪一个 Bot 库定义（临时拉进来的没有）。 */
+  defId?: string
+  /** 岗位描述：他是谁、怎么干活。 */
+  persona?: string
+  /** 一句话专长，总管据此派人。 */
+  expertise?: string
+  /** 输出规范。 */
+  instructions?: string
+  /** 部署里的 agent preset，决定这个 Bot 能用哪些工具。 */
+  agentPreset?: string
 }
 
 /** 计划里的一件活。 */

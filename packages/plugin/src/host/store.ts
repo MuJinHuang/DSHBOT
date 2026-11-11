@@ -7,13 +7,15 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { Message, Room } from '@dshbot/core'
+import type { BotDefinition, Message, Room } from '@dshbot/core'
 
 /** 文件格式版本，将来迁移用。 */
 export interface Database {
   version: 1
   rooms: Room[]
   messages: Message[]
+  /** 房间外可复用的 Bot 角色卡。 */
+  bots: BotDefinition[]
 }
 
 /**
@@ -37,7 +39,7 @@ export function loadConfig(): DshbotConfig {
   }
 }
 
-const EMPTY: Database = { version: 1, rooms: [], messages: [] }
+const EMPTY: Database = { version: 1, rooms: [], messages: [], bots: [] }
 
 /** DSH home，与宿主保持一致（`$DSH_HOME` 优先，否则 `~/.dsh`）。 */
 function dshHome(): string {
@@ -95,10 +97,11 @@ export function loadDb(): Database {
     return {
       version: 1,
       rooms: rooms.map(migrateRoom),
-      messages: Array.isArray(parsed.messages) ? parsed.messages : []
+      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      bots: Array.isArray(parsed.bots) ? parsed.bots : []
     }
   } catch {
-    return { ...EMPTY, rooms: [], messages: [] }
+    return { ...EMPTY }
   }
 }
 

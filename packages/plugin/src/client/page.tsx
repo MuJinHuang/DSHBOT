@@ -22,6 +22,7 @@ import {
 } from './api'
 import type { VersionEntry } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
+import { MemberPanel } from './members'
 import { parseBlocks, parseInline } from '@dshbot/core/blocks'
 
 /**
@@ -1474,20 +1475,6 @@ export function RoomsPage() {
     [selectedId]
   )
 
-  // 拉一只 Bot 进房间
-  const addBot = useCallback(
-    async (name: string, role: 'host' | 'worker' = 'worker') => {
-      if (selectedId === null) return
-      try {
-        const result = await addMember(selectedId, { name, role })
-        setRooms((list) => list.map((r) => (r.id === result.room.id ? result.room : r)))
-        setSendError(null)
-      } catch (err) {
-        setSendError(err instanceof Error ? err.message : '拉人失败')
-      }
-    },
-    [selectedId]
-  )
 
   // 交付验收
   const runDelivery = useCallback(async () => {
@@ -1799,185 +1786,14 @@ export function RoomsPage() {
     ),
 
     // 右：成员
-    h(MemberPanel, { room: selected, onAdd: (name: string, role: 'host' | 'worker') => void addBot(name, role) })
+    h(MemberPanel, {
+      room: selected,
+      onRoomChange: (room: Room) => setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
+    })
   )
 }
 
 /** 右侧成员面板：成员卡 + 拉人入口。 */
-function MemberPanel(props: {
-  room: Room | null
-  onAdd: (name: string, role: 'host' | 'worker') => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [role, setRole] = useState<'host' | 'worker'>('worker')
-  const members = props.room?.members ?? []
-
-  const submit = () => {
-    const value = name.trim()
-    if (value === '') return
-    setName('')
-    setOpen(false)
-    props.onAdd(value, role)
-  }
-
-  return h(
-    'div',
-    { style: { width: 220, flexShrink: 0, padding: 12, boxSizing: 'border-box', overflow: 'auto' } },
-    h(SectionTitle, {}, `成员（${members.length}）`),
-
-    members.length === 0
-      ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '暂无 Bot')
-      : members.map((m) => h(MemberCard, { key: m.botId, member: m })),
-
-    props.room === null
-      ? null
-      : open
-        ? h(
-            'div',
-            { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 } },
-            h('input', {
-              autoFocus: true,
-              value: name,
-              placeholder: 'Bot 名字，如「老周」',
-              onChange: (e: { target: { value: string } }) => setName(e.target.value),
-              onKeyDown: (e: { key: string }) => {
-                if (e.key === 'Enter') submit()
-                if (e.key === 'Escape') setOpen(false)
-              },
-              style: {
-                padding: '6px 8px',
-                borderRadius: 6,
-                border: LINE,
-                background: 'transparent',
-                color: 'inherit',
-                fontSize: 12,
-                fontFamily: 'inherit'
-              }
-            }),
-            h(
-              'div',
-              { style: { display: 'flex', gap: 6 } },
-              h(
-                'select',
-                {
-                  value: role,
-                  onChange: (e: { target: { value: string } }) =>
-                    setRole(e.target.value === 'host' ? 'host' : 'worker'),
-                  style: {
-                    padding: '5px 6px',
-                    borderRadius: 6,
-                    border: LINE,
-                    background: 'transparent',
-                    color: 'inherit',
-                    fontSize: 12,
-                    fontFamily: 'inherit'
-                  }
-                },
-                h('option', { value: 'worker' }, '执行'),
-                h('option', { value: 'host' }, '总管')
-              ),
-              h(
-                'button',
-                {
-                  onClick: submit,
-                  style: {
-                    flex: 1,
-                    padding: '5px 0',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: '#2f6fed',
-                    color: '#fff',
-                    fontSize: 12,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer'
-                  }
-                },
-                '加入'
-              ),
-              h(
-                'button',
-                {
-                  onClick: () => setOpen(false),
-                  style: {
-                    flex: 1,
-                    padding: '5px 0',
-                    borderRadius: 6,
-                    border: LINE,
-                    background: 'transparent',
-                    color: 'inherit',
-                    fontSize: 12,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer'
-                  }
-                },
-                '取消'
-              )
-            )
-          )
-        : h(
-            'button',
-            {
-              onClick: () => setOpen(true),
-              style: {
-                width: '100%',
-                marginTop: 4,
-                padding: '6px 0',
-                borderRadius: 6,
-                border: LINE,
-                background: 'transparent',
-                color: 'inherit',
-                fontSize: 12,
-                fontFamily: 'inherit',
-                cursor: 'pointer'
-              }
-            },
-            '＋ 拉一个 Bot'
-          ),
-
-    h('div', { style: { marginTop: 12, fontSize: 11, color: 'rgba(128,128,128,0.55)' } },
-      '状态灯：空闲 / 思考中 / 操作中 / 排队 / 出错')
-  )
-}
-
-/** 成员卡：头像、名字、状态灯、活动、花费。 */
-function MemberCard(props: { member: Member }) {
-  const { member } = props
-  const dot = STATUS_COLOR[member.status] ?? '#999'
-  return h(
-    'div',
-    {
-      style: {
-        padding: '8px 10px',
-        marginBottom: 8,
-        borderRadius: 8,
-        border: LINE,
-        background: 'rgba(128,128,128,0.04)'
-      }
-    },
-    h(
-      'div',
-      { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 } },
-      h('span', { style: { fontSize: 15 } }, member.avatar),
-      h('span', { style: { fontSize: 13 } }, member.name),
-      member.role === 'host'
-        ? h('span', { style: { fontSize: 10, color: MUTED, border: LINE, borderRadius: 3, padding: '0 3px' } }, '总管')
-        : null
-    ),
-    h(
-      'div',
-      { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: MUTED } },
-      h('span', {
-        style: { width: 6, height: 6, borderRadius: 3, background: dot, display: 'inline-block' }
-      }),
-      h('span', {}, STATUS_TEXT[member.status] ?? member.status),
-      member.activity ? h('span', { style: { opacity: 0.7 } }, '· ' + member.activity) : null
-    ),
-    h('div', { style: { fontSize: 10.5, color: 'rgba(128,128,128,0.6)', marginTop: 4 } },
-      '已用 ' + formatTokens(member.tokensUsed ?? 0))
-  )
-}
-
 /** 侧栏图标。 */
 export function RoomsIcon() {
   return h('span', { style: { fontSize: 16, lineHeight: 1 } }, '\u{1F3E0}')

@@ -243,9 +243,11 @@ function recentLines(roomId: string, limit = RECENT_LIMIT): string[] {
  * @param task - 真正要它做的事
  */
 export function buildContext(room: Room, member: Member, task: string): string {
+  // 成员表带一句话专长：总管靠这个决定派给谁
   const members = (room.members ?? []).map((m) => {
     const tag = m.role === 'host' ? '总管' : '执行'
-    return `${m.name}（${tag}）`
+    const skill = m.expertise === undefined || m.expertise === '' ? '' : `${m.expertise}｜`
+    return `${m.name}（${skill}${tag}）`
   })
 
   const head = [
@@ -256,6 +258,13 @@ export function buildContext(room: Room, member: Member, task: string): string {
     member.role === 'host'
       ? '你是本房间的总管：先用 1-2 次工具确认现状，然后给出结论；该派人做的用 @名字 派活，派活时把要求写清楚。不要自己深挖细节。**不要调用 subagent 工具**——房间里的人要用 @名字 指派，不用子代理。**只派真正需要动手的活**：像「待命」「收到请回」这种不要派成任务（那会白烧一轮钱），直接说一句就行。'
       : `你是执行 Bot「${member.name}」：只做分给你的那一件事，最多用 5 次工具，够用就下结论。必须给出一段文字结论，不要只调工具不说话。不要调用 subagent 工具。如果你要跑 pnpm / npm 之类的构建命令却报 spawn EPERM，那是沙箱限制，**别重试**，直接把结论交回来——构建和验收由房间负责。`,
+    // 岗位设定：房间规则在上，岗位在下，冲突时上面的规则优先
+    ...(member.persona === undefined || member.persona === ''
+      ? []
+      : [`【你的岗位】${member.persona}`]),
+    ...(member.instructions === undefined || member.instructions === ''
+      ? []
+      : [`【输出要求】${member.instructions}`]),
     ...(member.files === undefined || member.files.length === 0
       ? []
       : [`你负责的文件：${member.files.join('、')}。不要动别人的文件。`])
@@ -393,7 +402,8 @@ async function runMember(
       },
       (event) => {
         setLive(roomId, member.botId, `正在 ${event.name}…`)
-      }
+      },
+      member.agentPreset
     )
     // 被超时截断时必须说出来，否则半截结论会被当成完整结论
     const truncatedNote = outcome.truncated

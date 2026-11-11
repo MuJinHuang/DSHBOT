@@ -104,6 +104,7 @@ export interface AgentContext {
     get(id: string): AgentHandle | undefined
   }
   /** UI 同款的会话控制器，`agents.createSession` 在这里面。 */
+  agentPresets?: { list?: () => unknown }
   sessionController?: {
     agents?: {
       createSession(request: {
@@ -225,7 +226,8 @@ function extractText(events: unknown[]): string {
 async function acquireAgent(
   ctx: AgentContext,
   sessionId: string | undefined,
-  cwd: string
+  cwd: string,
+  agentPreset?: string
 ): Promise<{ agent: AgentHandle; sessionId: string }> {
   // ① 先试续上已有会话：内存里活着就直接用，不在就冷恢复
   if (sessionId !== undefined && sessionId !== '') {
@@ -251,7 +253,10 @@ async function acquireAgent(
   const requestedId = newId('sess')
   const viaController = ctx.sessionController?.agents?.createSession
   const created = viaController
-    ? await ctx.sessionController!.agents!.createSession({ cwd })
+    ? await ctx.sessionController!.agents!.createSession({
+        cwd,
+        ...(agentPreset === undefined ? {} : { agentPreset })
+      })
     : typeof ctx.agents.createSession === 'function'
       ? await ctx.agents.createSession({ cwd })
       : await ctx.agents.create({ sessionId: requestedId, agentOptions: { cwd } })
@@ -270,6 +275,7 @@ async function acquireAgent(
  * @param sinceSeq - 只处理比这个序号更新的事件，用来跳过历史
  * @param onAgent - 拿到句柄时回调一次，调用方可以借它注册"停止"
  * @param onEvent - 运行中的事件回调（目前只抛工具调用），用于实时状态
+ * @param agentPreset - 新会话要挂的 agent preset（决定工具集）；续聊时忽略
  */
 export async function runOnce(
   ctx: AgentContext,
@@ -278,10 +284,11 @@ export async function runOnce(
   existingSessionId?: string,
   sinceSeq = 0,
   onAgent?: (agent: AgentHandle) => void,
-  onEvent?: (event: { kind: 'tool'; name: string }) => void
+  onEvent?: (event: { kind: 'tool'; name: string }) => void,
+  agentPreset?: string
 ): Promise<RunOutcome> {
   const started = Date.now()
-  const acquired = await acquireAgent(ctx, existingSessionId, cwd)
+  const acquired = await acquireAgent(ctx, existingSessionId, cwd, agentPreset)
   const agent = acquired.agent
   onAgent?.(agent)
   const sessionId = acquired.sessionId

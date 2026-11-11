@@ -84,7 +84,17 @@ export async function setRoomState(
 /** 拉一只新 Bot 进房间。 */
 export async function addMember(
   roomId: string,
-  input: { name: string; role?: 'host' | 'worker' }
+  input: {
+    name?: string
+    role?: 'host' | 'worker'
+    avatar?: string
+    /** 从 Bot 库拉时给这个，会整份复制角色卡。 */
+    defId?: string
+    persona?: string
+    expertise?: string
+    instructions?: string
+    agentPreset?: string
+  }
 ): Promise<{ member: Member; room: Room }> {
   return request<{ member: Member; room: Room }>(`rooms/${roomId}/members`, {
     method: 'POST',
@@ -124,6 +134,54 @@ export async function updateRoom(
 /** 删除房间。 */
 export async function deleteRoom(roomId: string): Promise<void> {
   await request<{ deleted: boolean }>(`rooms/${roomId}`, { method: 'DELETE' })
+}
+
+/** 一个可复用的 Bot 角色卡。 */
+export interface BotCard {
+  id: string
+  name: string
+  avatar: string
+  persona?: string
+  expertise?: string
+  instructions?: string
+  agentPreset?: string
+}
+
+/** 部署里可选的工具集（agent preset）。 */
+export interface PresetEntry {
+  id: string
+  label: string
+}
+
+/** 列 Bot 库。 */
+export async function listBots(): Promise<BotCard[]> {
+  const data = await request<{ bots: BotCard[] }>('bots')
+  return data.bots ?? []
+}
+
+/** 把一大段话拆成 岗位 / 专长 / 输出规范。 */
+export async function splitBotText(
+  text: string
+): Promise<{ persona: string; expertise: string; instructions: string }> {
+  return request<{ persona: string; expertise: string; instructions: string }>('bots/split', {
+    method: 'POST',
+    body: JSON.stringify({ text })
+  })
+}
+
+/** 存入 Bot 库。 */
+export async function saveBot(input: Partial<BotCard> & { name: string }): Promise<BotCard> {
+  const data = await request<{ bot: BotCard }>('bots', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+  return data.bot
+}
+
+/** 列出可选工具集。 */
+export async function listPresets(): Promise<PresetEntry[]> {
+  const data = await request<{ presets: PresetEntry[] }>('presets')
+  return data.presets ?? []
 }
 
 /** 拉审计 JSONL 原文（一行一条，能直接喂给脚本）。 */
