@@ -16,6 +16,27 @@ export interface Database {
   messages: Message[]
 }
 
+/**
+ * 可调的运行参数。
+ *
+ * 放在 `~/.dsh/dshbot/config.json`，改完重启 DSH 生效。
+ */
+export interface DshbotConfig {
+  /** 单轮最长等待毫秒数，默认 5 分钟；调大适合改代码的长任务。 */
+  runTimeoutMs?: number
+}
+
+/** 读配置；文件不存在或坏了都返回空对象，不阻断主流程。 */
+export function loadConfig(): DshbotConfig {
+  try {
+    const raw = readFileSync(join(dshHome(), 'dshbot', 'config.json'), 'utf8')
+    const parsed = JSON.parse(raw) as unknown
+    return typeof parsed === 'object' && parsed !== null ? (parsed as DshbotConfig) : {}
+  } catch {
+    return {}
+  }
+}
+
 const EMPTY: Database = { version: 1, rooms: [], messages: [] }
 
 /** DSH home，与宿主保持一致（`$DSH_HOME` 优先，否则 `~/.dsh`）。 */

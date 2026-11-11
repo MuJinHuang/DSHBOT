@@ -48,6 +48,20 @@ spike/     验证记录、截图与取证脚本
 
 任务拆分见 [TASKS.md](TASKS.md)，架构决策见 [M1-技术方案.md](M1-技术方案.md)，当前状态见 [STATE.md](STATE.md)。
 
+## 配置
+
+单轮 Run 默认最多等 **5 分钟**，超时会明确标注「本轮被超时截断」并说明结论可能不完整。
+改代码这类长任务可以调大：
+
+```jsonc
+// %USERPROFILE%\.dsh\dshbot\config.json
+{
+  "runTimeoutMs": 600000   // 10 分钟，范围 10 秒 ~ 30 分钟
+}
+```
+
+也可以用环境变量临时覆盖：`$env:DSHBOT_RUN_TIMEOUT_MS = '600000'`（优先级更高）。
+
 ## 开发
 
 ```powershell

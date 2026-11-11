@@ -13,6 +13,24 @@
  */
 import { randomUUID } from 'node:crypto'
 import { newId } from '@dshbot/core'
+import { loadConfig } from './store.js'
+
+/** 单轮默认最长等待：5 分钟。改代码的任务比读文档慢得多。 */
+const DEFAULT_RUN_TIMEOUT_MS = 300_000
+
+/**
+ * 本轮最多等多久。
+ *
+ * 优先级：环境变量 `DSHBOT_RUN_TIMEOUT_MS` > config.json 的 `runTimeoutMs` > 默认 5 分钟。
+ * 夹在 10 秒到 30 分钟之间，避免手滑写成 0 或一整天。
+ */
+export function runTimeoutMs(): number {
+  const fromEnv = Number(process.env.DSHBOT_RUN_TIMEOUT_MS)
+  const raw =
+    Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : (loadConfig().runTimeoutMs ?? 0)
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_RUN_TIMEOUT_MS
+  return Math.min(Math.max(Math.round(raw), 10_000), 1_800_000)
+}
 
 /** 一次工具调用。 */
 export interface ToolStep {
@@ -51,6 +69,8 @@ export interface RunOutcome {
   /** 诊断用：每种事件的第一条样本（截断）。 */
   samples: Record<string, string>
   ms: number
+  /** 是否因为等不到 idle 被超时截断——截断的结论不可信，要告诉用户。 */
+  truncated: boolean
 }
 
 /** agent 句柄：形状随宿主版本变，只声明用到的方法。 */
@@ -320,7 +340,15 @@ export async function runOnce(
     }
   }
 
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 60_000))
+  // 超时保护：等不到 idle 就收手，但必须标记出来——截断的结论不可信
+  let timedOut = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true
+      resolve()
+    }, runTimeoutMs())
+  })
 
   agent.followup(userMessage(prompt) as never)
 
@@ -342,6 +370,7 @@ export async function runOnce(
   }
 
   await Promise.race([idle, timeout])
+  if (timer !== undefined) clearTimeout(timer)
   off?.()
 
   const liveSession = (agent as unknown as { session?: SessionLike & { events?: unknown } }).session
@@ -424,6 +453,7 @@ export async function runOnce(
     handleKeys: Object.keys(agent),
     statuses,
     samples,
-    ms: Date.now() - started
+    ms: Date.now() - started,
+    truncated: timedOut
   }
 }

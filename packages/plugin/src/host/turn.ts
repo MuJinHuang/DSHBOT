@@ -339,7 +339,12 @@ async function runMember(
         setLive(roomId, member.botId, `正在 ${event.name}…`)
       }
     )
-    const reply = outcome.text !== '' ? outcome.text : '（模型没有返回文字）'
+    // 被超时截断时必须说出来，否则半截结论会被当成完整结论
+    const truncatedNote = outcome.truncated
+      ? `\n\n（本轮被超时截断：等满 ${Math.round(outcome.ms / 1000)} 秒仍未结束，` +
+        '结论可能不完整。可在 ~/.dsh/dshbot/config.json 里调大 runTimeoutMs）'
+      : ''
+    const reply = (outcome.text !== '' ? outcome.text : '（模型没有返回文字）') + truncatedNote
 
     const toolMessages: Message[] = outcome.tools.map((tool) => {
       const message = makeMessage(
