@@ -9,7 +9,7 @@
  * 3. 派活：总管的回复里 @ 到谁，就把活拆给谁，并记一张任务卡。
  * 4. 串行：同一房间一次只跑一轮，避免两个请求打架。
  */
-import { newId, nowIso } from '@dshbot/core'
+import { canStartRun, evaluateBudget, formatTokens, newId, nowIso } from '@dshbot/core'
 import {
   extractFiles,
   parseChecks,
@@ -333,6 +333,42 @@ async function runMember(
   rawTask: string
 ): Promise<{ messages: Message[]; outcome?: RunOutcome }> {
   const started = loadDb()
+  const roomNow = started.rooms.find((r) => r.id === roomId)
+
+  // 预算闸门：房间或这个人到线了就不再开跑，免得一晚烧掉一个月额度
+  if (roomNow !== undefined) {
+    if (!canStartRun(roomNow)) {
+      const note = makeMessage(
+        roomId,
+        'system',
+        'system',
+        `房间预算已用尽（${formatTokens(roomNow.tokensUsed ?? 0)} / ${formatTokens(roomNow.budget.perRoom)}），` +
+          `${member.name} 这一轮没有执行。可在「编辑」里调高 perRoom，或新建房间。`
+      )
+      const dbBlocked = loadDb()
+      dbBlocked.messages.push(note)
+      saveDb(dbBlocked)
+      return { messages: [note] }
+    }
+    const own = roomNow.members?.find((m) => m.botId === member.botId)
+    if (
+      own !== undefined &&
+      evaluateBudget(own.tokensUsed ?? 0, roomNow.budget.perBot).level === 'exhausted'
+    ) {
+      const note = makeMessage(
+        roomId,
+        'system',
+        'system',
+        `${member.name} 的个人预算已用尽（${formatTokens(own.tokensUsed ?? 0)} / ` +
+          `${formatTokens(roomNow.budget.perBot)}），这一轮没有执行。`
+      )
+      const dbBlocked = loadDb()
+      dbBlocked.messages.push(note)
+      saveDb(dbBlocked)
+      return { messages: [note] }
+    }
+  }
+
   const seat = started.rooms.find((r) => r.id === roomId)?.members?.find((m) => m.botId === member.botId)
   if (seat !== undefined) {
     seat.status = 'thinking'
@@ -398,8 +434,25 @@ async function runMember(
     }
     saveDb(after)
 
+    // 单轮超支：这一轮已经跑完拦不住了，但要留痕，下一轮由房间/个人额度接管
+    const produced: Message[] = [...toolMessages, botMessage]
+    const perRun = after.rooms.find((r) => r.id === roomId)?.budget.perRun ?? 0
+    if (perRun > 0 && outcome.usage.total > perRun) {
+      const warn = makeMessage(
+        roomId,
+        'system',
+        'system',
+        `${member.name} 这一轮消耗 ${formatTokens(outcome.usage.total)}，超过单轮预算 ` +
+          `${formatTokens(perRun)}。已经跑完拦不住，但下一轮会被额度闸门检查。`
+      )
+      const withWarn = loadDb()
+      withWarn.messages.push(warn)
+      saveDb(withWarn)
+      produced.push(warn)
+    }
+
     void rawTask
-    return { messages: [...toolMessages, botMessage], outcome }
+    return { messages: produced, outcome }
   } catch (error) {
     const note = makeMessage(
       roomId,

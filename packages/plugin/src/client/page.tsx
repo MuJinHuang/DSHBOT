@@ -1113,7 +1113,9 @@ function RoomDetail(props: {
         'div',
         { style: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUTED, marginTop: 4 } },
         h('span', {}, '已用 ' + formatTokens(spent)),
-        h('span', {}, '预算 ' + formatTokens(cap))
+        spent >= cap && cap > 0
+          ? h('span', { style: { color: '#e5484d' } }, '预算已用尽，Bot 不再执行')
+          : h('span', {}, '预算 ' + formatTokens(cap))
       )
     ),
 
