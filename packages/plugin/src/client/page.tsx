@@ -959,7 +959,15 @@ function RoomDetail(props: {
       h('div', { style: { fontSize: 17 } }, room.name),
       h(Badge, {}, STATUS_LABEL[room.status] ?? room.status),
       h('div', { style: { flex: 1 } }),
-      actionButton(props.delivering ? '验收中…' : '交付验收', 'deliver', () => props.onDeliver()),
+      actionButton(
+        props.delivering
+          ? '验收中…'
+          : room.pendingPlan === undefined
+            ? '交付验收'
+            : '先批准计划',
+        'deliver',
+        () => props.onDeliver()
+      ),
       actionButton('导出', 'export', () => props.onExport()),
       actionButton(editing ? '取消编辑' : '编辑', 'edit', () => setEditing(!editing)),
       paused

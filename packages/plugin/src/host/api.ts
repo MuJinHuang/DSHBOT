@@ -371,6 +371,13 @@ export function createHandler(ctx: AgentContext) {
           send(res, 409, { error: '房间已暂停或归档，先恢复再验收' })
           return
         }
+        // 计划没批准时房间里只有派活说明，验收只会得出"没有成品"的结论，不如直接拦住
+        if (room.pendingPlan !== undefined) {
+          send(res, 409, {
+            error: `还有 ${room.pendingPlan.items.length} 件事等你批准，先点「批准执行」再验收`
+          })
+          return
+        }
         const delivery = await deliverRoom(ctx, roomId)
         send(res, 200, { delivery, room: loadDb().rooms.find((r) => r.id === roomId) })
         return
@@ -484,6 +491,15 @@ export function createHandler(ctx: AgentContext) {
           target.pendingPlan = undefined
           target.status = 'working'
           target.updatedAt = nowIso()
+          // 批准这件事必须进消息流：否则执行者读到的还是"计划已生成，等待确认"
+          db.messages.push(
+            makeMessage(
+              roomId,
+              'system',
+              'system',
+              `计划已批准：${plan.items.length} 件事开始执行。`
+            )
+          )
           saveDb(db)
 
           const produced = await runPlan(ctx, roomId, plan.hostBotId, plan.hostName, plan.items)

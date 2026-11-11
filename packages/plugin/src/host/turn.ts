@@ -620,20 +620,32 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
   const room = db.rooms.find((r) => r.id === roomId)
   if (room === undefined) throw new Error(`房间不存在：${roomId}`)
 
+  // 计划还挂着就先别验收：这时候房间里只有总管的派活说明，没有任何执行产出
+  if (room.pendingPlan !== undefined) {
+    throw new Error('计划还没批准：先点上方「批准执行」让 Bot 干活，再来验收。')
+  }
+
   const dir = workspaceOf(room)
   const files = changedFiles(snapshotsOf(room), dir)
   const recent = recentLines(roomId, 10).join('\n')
 
-  // 判定要看得到产出正文，不能只看摘要
-  const outputs = db.messages
-    .filter((m) => m.roomId === roomId && m.kind === 'bot')
-    .slice(-3)
+  // 判定要看得到产出正文，不能只看摘要；执行者的产出优先，总管的话只算派活说明
+  const hostIds = new Set(
+    (room.members ?? []).filter((m) => m.role === 'host').map((m) => m.botId)
+  )
+  const botMessages = db.messages.filter((m) => m.roomId === roomId && m.kind === 'bot')
+  const workerMessages = botMessages.filter((m) => m.botId === undefined || !hostIds.has(m.botId))
+  const picked = (workerMessages.length > 0 ? workerMessages : botMessages).slice(-3)
+
+  const outputs = picked
     .map((m, index) => {
       const text = m.text.replace(/\s+/g, ' ').trim()
       const short = text.length > 1500 ? text.slice(0, 1500) + '…' : text
       return `【产出 ${index + 1}】${short}`
     })
     .join('\n\n')
+
+  const onlyHost = workerMessages.length === 0
 
   // 先跑能机器判定的（file: / cmd:），剩下的才请模型
   const deterministicChecks = room.acceptance.map((line) => runDeterministicCheck(dir, line))
@@ -649,8 +661,16 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
     '房间最近动态（含执行者的产出摘要）：',
     recent,
     '',
-    '房间里的产出正文（最近几条 Bot 回复，判定以它为准）：',
+    '房间里的产出正文（判定以它为准）：',
     outputs === '' ? '（还没有任何 Bot 产出）' : outputs,
+    ...(onlyHost
+      ? [
+          '',
+          '⚠️ 注意：上面这些全部来自总管，属于「派活说明」，不是成品。',
+          '如果验收点要求的是成品（摘要正文、代码、报告），且这里看不到成品，就判 unsure，',
+          '并在 reason 里写明"只有派活说明，没有执行者产出"。'
+        ]
+      : []),
     '',
     `工作区（${dir}）里变更的文件：`,
     files.length === 0 ? '（没有检测到变更）' : files.join('\n'),
@@ -742,8 +762,13 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
     done.updatedAt = nowIso()
   }
 
-  const card = makeMessage(roomId, 'system', 'system', delivery.summary)
-  after.messages.push(card)
+  // 连续重复的验收结果不再刷屏：上一条系统消息内容一样就不发
+  const last = after.messages.filter((m) => m.roomId === roomId).at(-1)
+  const duplicated =
+    last !== undefined && last.kind === 'system' && last.text === delivery.summary
+  if (!duplicated) {
+    after.messages.push(makeMessage(roomId, 'system', 'system', delivery.summary))
+  }
   saveDb(after)
 
   return delivery
