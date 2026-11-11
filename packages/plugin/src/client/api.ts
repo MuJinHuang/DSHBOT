@@ -178,6 +178,23 @@ export async function saveBot(input: Partial<BotCard> & { name: string }): Promi
   return data.bot
 }
 
+/** 改库里的 Bot。 */
+export async function updateBot(
+  botId: string,
+  input: Partial<Omit<BotCard, "id">> & { name?: string }
+): Promise<BotCard> {
+  const data = await request<{ bot: BotCard }>(`bots/${botId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  })
+  return data.bot
+}
+
+/** 删库里的 Bot。 */
+export async function deleteBot(botId: string): Promise<void> {
+  await request<{ deleted: boolean }>(`bots/${botId}`, { method: 'DELETE' })
+}
+
 /** 列出可选工具集。 */
 export async function listPresets(): Promise<PresetEntry[]> {
   const data = await request<{ presets: PresetEntry[] }>('presets')

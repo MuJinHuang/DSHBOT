@@ -17,12 +17,14 @@ import {
   listVersions,
   rollback,
   decidePlan,
+  listBots,
   fetchDiff,
   fetchAudit
 } from './api'
 import type { VersionEntry } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
-import { MemberPanel } from './members'
+import { BotLibraryView, MemberPanel } from './members'
+import type { BotCard } from './api'
 import { parseBlocks, parseInline } from '@dshbot/core/blocks'
 
 /**
@@ -1334,9 +1336,27 @@ function RoomDetail(props: {
   )
 }
 
+/** 顶部 tab 的样式。 */
+function tabStyle(active: boolean): Record<string, string | number> {
+  return {
+    flex: 1,
+    padding: '6px 0',
+    borderRadius: 6,
+    border: active ? 'none' : '1px solid rgba(128,128,128,0.25)',
+    background: active ? 'rgba(128,128,128,0.18)' : 'transparent',
+    color: 'inherit',
+    fontSize: 12,
+    fontFamily: 'inherit',
+    cursor: 'pointer'
+  }
+}
+
 export function RoomsPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [view, setView] = useState<'rooms' | 'bots'>('rooms')
+  const [bots, setBots] = useState<BotCard[]>([])
+  const [botId, setBotId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1344,6 +1364,19 @@ export function RoomsPage() {
   const [sending, setSending] = useState(false)
   const [delivering, setDelivering] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+
+
+  const refreshBots = useCallback(async () => {
+    try {
+      setBots(await listBots())
+    } catch {
+      setBots([])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (view === 'bots') void refreshBots()
+  }, [view, refreshBots])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -1652,7 +1685,7 @@ export function RoomsPage() {
     'div',
     { style: { display: 'flex', height: '100%', minHeight: 0, fontFamily: 'inherit' } },
 
-    // 左：房间列表
+    // 左：房间 / Bot 库
     h(
       'div',
       {
@@ -1667,129 +1700,219 @@ export function RoomsPage() {
           flexDirection: 'column'
         }
       },
-      h(SectionTitle, {}, '房间'),
       h(
-        'button',
-        {
-          onClick: () => {
-            setCreating(true)
-            setSelectedId(null)
+        'div',
+        { style: { display: 'flex', gap: 4, marginBottom: 10 } },
+        h(
+          'button',
+          {
+            onClick: () => setView('rooms'),
+            style: tabStyle(view === 'rooms')
           },
-          style: {
-            width: '100%',
-            padding: '7px 10px',
-            marginBottom: 10,
-            borderRadius: 6,
-            border: LINE,
-            background: 'transparent',
-            color: 'inherit',
-            fontSize: 12,
-            cursor: 'pointer'
-          }
-        },
-        '＋ 新建房间'
+          '房间'
+        ),
+        h(
+          'button',
+          {
+            onClick: () => setView('bots'),
+            style: tabStyle(view === 'bots')
+          },
+          'Bot 库'
+        )
       ),
-      loading
-        ? h('div', { style: { fontSize: 12, color: MUTED } }, '读取中…')
-        : rooms.length === 0
-          ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '还没有房间')
-          : rooms.map((room) =>
-              h(
-                'button',
-                {
-                  key: room.id,
-                  onClick: () => {
-                    setCreating(false)
-                    setSelectedId(room.id)
-                  },
-                  style: {
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '8px 10px',
-                    marginBottom: 4,
-                    borderRadius: 6,
-                    border: 'none',
-                    background:
-                      !creating && selectedId === room.id
-                        ? 'rgba(128,128,128,0.18)'
-                        : 'transparent',
-                    color: 'inherit',
-                    cursor: 'pointer',
-                    fontSize: 13
-                  }
+
+      view === 'rooms'
+        ? h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', minHeight: 0 } },
+            h(
+              'button',
+              {
+                onClick: () => {
+                  setCreating(true)
+                  setSelectedId(null)
                 },
-                room.name,
-                h('span', { style: { color: MUTED, marginLeft: 8, fontSize: 11 } },
-                  STATUS_LABEL[room.status] ?? room.status)
-              )
-            )
+                style: {
+                  width: '100%',
+                  padding: '7px 10px',
+                  marginBottom: 10,
+                  borderRadius: 6,
+                  border: LINE,
+                  background: 'transparent',
+                  color: 'inherit',
+                  fontSize: 12,
+                  cursor: 'pointer'
+                }
+              },
+              '＋ 新建房间'
+            ),
+            loading
+              ? h('div', { style: { fontSize: 12, color: MUTED } }, '读取中…')
+              : rooms.length === 0
+                ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '还没有房间')
+                : rooms.map((room) =>
+                    h(
+                      'button',
+                      {
+                        key: room.id,
+                        onClick: () => {
+                          setCreating(false)
+                          setSelectedId(room.id)
+                        },
+                        style: {
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '8px 10px',
+                          marginBottom: 4,
+                          borderRadius: 6,
+                          border: 'none',
+                          background:
+                            !creating && selectedId === room.id
+                              ? 'rgba(128,128,128,0.18)'
+                              : 'transparent',
+                          color: 'inherit',
+                          cursor: 'pointer',
+                          fontSize: 13
+                        }
+                      },
+                      room.name,
+                      h('span', { style: { color: MUTED, marginLeft: 8, fontSize: 11 } },
+                        STATUS_LABEL[room.status] ?? room.status)
+                    )
+                  )
+          )
+        : h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', minHeight: 0 } },
+            h(
+              'button',
+              {
+                onClick: () => setBotId(null),
+                style: {
+                  width: '100%',
+                  padding: '7px 10px',
+                  marginBottom: 10,
+                  borderRadius: 6,
+                  border: LINE,
+                  background: 'transparent',
+                  color: 'inherit',
+                  fontSize: 12,
+                  cursor: 'pointer'
+                }
+              },
+              '＋ 新建 Bot'
+            ),
+            bots.length === 0
+              ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '库里还没有 Bot')
+              : bots.map((bot) =>
+                  h(
+                    'button',
+                    {
+                      key: bot.id,
+                      onClick: () => setBotId(bot.id),
+                      style: {
+                        display: 'block',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '8px 10px',
+                        marginBottom: 4,
+                        borderRadius: 6,
+                        border: 'none',
+                        background: botId === bot.id ? 'rgba(128,128,128,0.18)' : 'transparent',
+                        color: 'inherit',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }
+                    },
+                    `${bot.avatar} ${bot.name}`,
+                    bot.expertise === undefined
+                      ? null
+                      : h(
+                          'div',
+                          { style: { color: MUTED, fontSize: 10.5, marginTop: 2 } },
+                          bot.expertise
+                        )
+                  )
+                )
+          )
     ),
 
     // 中：内容
     h(
       'div',
       { style: { flex: 1, minWidth: 0, padding: 24, boxSizing: 'border-box', overflow: 'auto' } },
-      error
-        ? h('div', { style: { color: '#e5484d', fontSize: 13 } },
-            '读取房间失败：' + error,
-            h('div', { style: { color: MUTED, fontSize: 12, marginTop: 8 } },
-              '确认插件已加载：宿主日志里应有 [dshbot] host side loaded。'))
-        : creating
-          ? h(CreateForm, {
-              onCancel: () => setCreating(false),
-              onCreated: (room: Room) => {
-                setCreating(false)
-                setRooms((list) => [room, ...list])
-                setSelectedId(room.id)
-              }
-            })
-          : selected
-            ? h(RoomDetail, {
-                room: selected,
-                messages,
-                sending,
-                delivering,
-                error: sendError,
-                onSend: (text: string) => void send(text),
-                onState: (action: string) =>
-                  void changeState(action as Parameters<typeof changeState>[0]),
-                onDeliver: () => void runDelivery(),
-                onTakeover: (action: 'take' | 'return', note?: string) =>
-                  void changeTakeover(action, note),
-                onStop: () => void stopRun(),
-                onEdit: (input: {
-                  name: string
-                  goal: string
-                  acceptance: string[]
-                  workspaceDir: string
-                }) => void editRoom(input),
-                onDelete: () => void removeRoom(),
-                onExport: () => exportRoom(),
-                onExportAudit: () => void exportAudit(),
-                versions,
-                onRollback: (hash: string) => void doRollback(hash),
-                onDecidePlan: (action: 'approve' | 'reject') => void decidePlanHandler(action),
-                planBusy
+      view === 'bots'
+        ? h(BotLibraryView, {
+            bots,
+            selectedId: botId,
+            onSelect: (id: string | null) => setBotId(id),
+            onChanged: () => void refreshBots()
+          })
+        : error
+          ? h('div', { style: { color: '#e5484d', fontSize: 13 } },
+              '读取房间失败：' + error,
+              h('div', { style: { color: MUTED, fontSize: 12, marginTop: 8 } },
+                '确认插件已加载：宿主日志里应有 [dshbot] host side loaded。'))
+          : creating
+            ? h(CreateForm, {
+                onCancel: () => setCreating(false),
+                onCreated: (room: Room) => {
+                  setCreating(false)
+                  setRooms((list) => [room, ...list])
+                  setSelectedId(room.id)
+                }
               })
-            : h(
-                'div',
-                { style: { display: 'grid', placeItems: 'center', height: '100%', color: MUTED } },
-                h(
+            : selected
+              ? h(RoomDetail, {
+                  room: selected,
+                  messages,
+                  sending,
+                  delivering,
+                  error: sendError,
+                  onSend: (text: string) => void send(text),
+                  onState: (action: string) =>
+                    void changeState(action as Parameters<typeof changeState>[0]),
+                  onDeliver: () => void runDelivery(),
+                  onTakeover: (action: 'take' | 'return', note?: string) =>
+                    void changeTakeover(action, note),
+                  onStop: () => void stopRun(),
+                  onEdit: (input: {
+                    name: string
+                    goal: string
+                    acceptance: string[]
+                    workspaceDir: string
+                  }) => void editRoom(input),
+                  onDelete: () => void removeRoom(),
+                  onExport: () => exportRoom(),
+                  onExportAudit: () => void exportAudit(),
+                  versions,
+                  onRollback: (hash: string) => void doRollback(hash),
+                  onDecidePlan: (action: 'approve' | 'reject') => void decidePlanHandler(action),
+                  planBusy
+                })
+              : h(
                   'div',
-                  { style: { textAlign: 'center', maxWidth: 380, fontSize: 13, lineHeight: 1.8 } },
-                  '还没有房间',
-                  h('br'),
-                  '建一个房间，拉几个 Bot 进来，说一句话，它们分头干活。'
+                  { style: { display: 'grid', placeItems: 'center', height: '100%', color: MUTED } },
+                  h(
+                    'div',
+                    { style: { textAlign: 'center', maxWidth: 380, fontSize: 13, lineHeight: 1.8 } },
+                    '还没有房间',
+                    h('br'),
+                    '建一个房间，拉几个 Bot 进来，说一句话，它们分头干活。'
+                  )
                 )
-              )
     ),
 
-    // 右：成员
-    h(MemberPanel, {
-      room: selected,
-      onRoomChange: (room: Room) => setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
-    })
+    // 右：成员（Bot 库视图不需要）
+    view === 'rooms'
+      ? h(MemberPanel, {
+          room: selected,
+          onRoomChange: (room: Room) =>
+            setRooms((list) => list.map((r) => (r.id === room.id ? room : r))),
+          onOpenLibrary: () => setView('bots')
+        })
+      : null
   )
 }
 
