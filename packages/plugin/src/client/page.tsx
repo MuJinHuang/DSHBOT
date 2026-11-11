@@ -1,5 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { formatTokens } from '@dshbot/core'
 import type { Delivery, Member, Message, Room } from '@dshbot/core'
 import {
   addMember,
@@ -91,13 +92,6 @@ const inputStyle = {
   fontFamily: 'inherit',
   width: '100%',
   boxSizing: 'border-box' as const
-}
-
-/** 把 token 数压成 1.2k / 3.4M 这种。 */
-function formatTokens(value: number): string {
-  if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + 'M'
-  if (value >= 1_000) return (value / 1_000).toFixed(1) + 'k'
-  return String(value)
 }
 
 /** 状态灯颜色。 */

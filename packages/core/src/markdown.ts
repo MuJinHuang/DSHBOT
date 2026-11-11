@@ -4,13 +4,7 @@
  * 单独成文件（不依赖 React），这样能被单元测试覆盖。
  */
 import type { Message, Room } from './types.js'
-
-/** token 数压成 1.2k / 3.4M 这种。 */
-function formatTokens(value: number): string {
-  if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M'
-  if (value >= 1_000) return (value / 1_000).toFixed(1) + 'k'
-  return String(Math.round(value))
-}
+import { formatTokens } from './format.js'
 
 /**
  * 生成一份可直接交差的 Markdown。
