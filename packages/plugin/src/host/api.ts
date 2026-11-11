@@ -81,7 +81,10 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /** 校验并构造一个新房间。 */
-function buildRoom(input: Record<string, unknown>): Room | { error: string } {
+function buildRoom(
+  input: Record<string, unknown>,
+  seedDefaultBot: boolean
+): Room | { error: string } {
   const name = input.name
   const goal = input.goal
   const acceptanceRaw = input.acceptance
@@ -127,17 +130,20 @@ function buildRoom(input: Record<string, unknown>): Room | { error: string } {
     shared: '',
     workspaceDir,
     tokensUsed: 0,
-    // 新房间默认拉一只执行 Bot，之后可以再拉人
-    members: [
-      {
-        botId: 'bot_default',
-        name: '小柯',
-        role: 'worker',
-        avatar: '🧑‍💻',
-        status: 'idle',
-        tokensUsed: 0
-      }
-    ],
+    // 库里还没有 Bot 时，塞一只默认执行者让新房间能立刻说话；
+    // 库里有货就不塞——否则会多出一只没有角色卡的"裸" Bot，还会和库里的撞名
+    members: seedDefaultBot
+      ? [
+          {
+            botId: 'bot_default',
+            name: '小柯',
+            role: 'worker',
+            avatar: '🧑‍💻',
+            status: 'idle',
+            tokensUsed: 0
+          }
+        ]
+      : [],
     createdAt: now,
     updatedAt: now
   }
@@ -278,12 +284,12 @@ export function createHandler(ctx: AgentContext) {
         }
         if (method === 'POST') {
           const input = (await readJson(req)) as Record<string, unknown>
-          const room = buildRoom(input)
+          const db = loadDb()
+          const room = buildRoom(input, db.bots.length === 0)
           if ('error' in room) {
             send(res, 400, { error: room.error })
             return
           }
-          const db = loadDb()
           db.rooms.unshift(room)
           saveDb(db)
           send(res, 201, { room })
