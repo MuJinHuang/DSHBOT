@@ -121,3 +121,19 @@ test('同一件事的一开一关两张卡，只导出最后一张', () => {
   const hits = md.split('\n').filter((line) => line.includes('阿岚 → 小柯'))
   assert.equal(hits.length, 1, '只应出现一次')
 })
+test('导出任务卡带状态与结论', () => {
+  const cards = [
+    {
+      id: 'c1',
+      roomId: 'room_x',
+      kind: 'assignment',
+      from: 'bot_host',
+      text: '阿岚 → 小柯：写摘要',
+      payload: { to: '小柯', title: '写摘要', status: 'done', result: '已交付，约 280 字' },
+      createdAt: ''
+    }
+  ]
+  const md = buildMarkdown(room, cards, new Date('2026-11-10T00:00:00Z'))
+  assert.ok(md.includes('**任务卡** ✅'))
+  assert.ok(md.includes('> 结论：已交付，约 280 字'))
+})

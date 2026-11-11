@@ -254,7 +254,7 @@ export function buildContext(room: Room, member: Member, task: string): string {
     `验收：${room.acceptance.map((a, i) => `${i + 1}. ${a}`).join('  ')}`,
     `成员：${members.join('、')}`,
     member.role === 'host'
-      ? '你是本房间的总管：先用 1-2 次工具确认现状，然后给出结论；该派人做的用 @名字 派活，派活时把要求写清楚。不要自己深挖细节。**不要调用 subagent 工具**——房间里的人要用 @名字 指派，不用子代理。'
+      ? '你是本房间的总管：先用 1-2 次工具确认现状，然后给出结论；该派人做的用 @名字 派活，派活时把要求写清楚。不要自己深挖细节。**不要调用 subagent 工具**——房间里的人要用 @名字 指派，不用子代理。**只派真正需要动手的活**：像「待命」「收到请回」这种不要派成任务（那会白烧一轮钱），直接说一句就行。'
       : `你是执行 Bot「${member.name}」：只做分给你的那一件事，最多用 5 次工具，够用就下结论。必须给出一段文字结论，不要只调工具不说话。不要调用 subagent 工具。`,
     ...(member.files === undefined || member.files.length === 0
       ? []
@@ -297,11 +297,31 @@ function dispatchTargets(room: Room, hostReply: string, self: Member): Member[] 
   return picked
 }
 
-/** 把总管回复里提到某个人的那一行摘出来，作为这个人的任务。 */
+/**
+ * 把总管回复里分给某个人的那段话摘出来。
+ *
+ * 之前只取含 `@名字` 的那一行，结果任务卡经常只剩半句话。
+ * 现在从那一行往后收，直到下一个 `@别人` 出现，最多 400 字。
+ */
 function taskFor(hostReply: string, name: string): string {
-  const lines = hostReply.split('\n').map((l) => l.trim()).filter(Boolean)
-  const hit = lines.find((l) => l.includes('@' + name))
-  return (hit ?? hostReply).slice(0, 400)
+  const lines = hostReply.split('\n').map((line) => line.trim())
+  const start = lines.findIndex((line) => line.includes('@' + name))
+  if (start < 0) return hostReply.slice(0, 400)
+
+  const picked: string[] = [lines[start] ?? '']
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    // 遇到别的 @ 就停：那是另一个人的活
+    if (/@[^\s@，,。.:：]+/.test(line)) break
+    if (line === '') {
+      // 空行之后如果还有内容，说明是下一段，也停
+      if (picked.join('\n').length > 0) break
+      continue
+    }
+    picked.push(line)
+    if (picked.join('\n').length > 400) break
+  }
+  return picked.join('\n').slice(0, 400)
 }
 
 /** 跑一个成员的一轮，并把结果落盘。 */

@@ -65,14 +65,34 @@ export function buildMarkdown(
   messages.forEach((message, index) => {
     if (message.kind === 'tool') return
     if (message.kind === 'assignment' && !keepCard.has(index)) return
+
+    if (message.kind === 'assignment') {
+      const payload = (message.payload ?? {}) as { status?: unknown; result?: unknown }
+      const status = String(payload.status ?? '')
+      const icon =
+        status === 'done'
+          ? '✅'
+          : status === 'failed'
+            ? '❌'
+            : status === 'rejected'
+              ? '🚫'
+              : status === 'pending'
+                ? '⏳'
+                : '▶️'
+      lines.push(`**任务卡** ${icon} ${message.text.replace(/\n/g, '  ')}`)
+      if (typeof payload.result === 'string' && payload.result !== '') {
+        lines.push(`> 结论：${payload.result}`)
+      }
+      lines.push('')
+      return
+    }
+
     const who =
       message.kind === 'human'
         ? '我'
         : message.kind === 'system'
           ? '系统'
-          : message.kind === 'assignment'
-            ? '任务卡'
-            : ((room.members ?? []).find((m) => m.botId === message.botId)?.name ?? 'Bot')
+          : ((room.members ?? []).find((m) => m.botId === message.botId)?.name ?? 'Bot')
     lines.push(`**${who}**：${message.text.replace(/\n/g, '  ')}`, '')
   })
 
