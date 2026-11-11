@@ -126,6 +126,13 @@ export async function deleteRoom(roomId: string): Promise<void> {
   await request<{ deleted: boolean }>(`rooms/${roomId}`, { method: 'DELETE' })
 }
 
+/** 拉审计 JSONL 原文（一行一条，能直接喂给脚本）。 */
+export async function fetchAudit(roomId: string): Promise<string> {
+  const res = await fetch(`dshbot/api/rooms/${roomId}/audit`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.text()
+}
+
 /** 看某个文件的变更。 */
 export async function fetchDiff(
   roomId: string,

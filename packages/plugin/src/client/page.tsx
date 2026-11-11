@@ -17,7 +17,8 @@ import {
   listVersions,
   rollback,
   decidePlan,
-  fetchDiff
+  fetchDiff,
+  fetchAudit
 } from './api'
 import type { VersionEntry } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
@@ -903,6 +904,7 @@ function RoomDetail(props: {
   onEdit: (input: { name: string; goal: string; acceptance: string[]; workspaceDir: string }) => void
   onDelete: () => void
   onExport: () => void
+  onExportAudit: () => void
   versions: VersionEntry[]
   onRollback: (hash: string) => void
   onDecidePlan: (action: 'approve' | 'reject') => void
@@ -973,6 +975,7 @@ function RoomDetail(props: {
         () => props.onDeliver()
       ),
       actionButton('导出', 'export', () => props.onExport()),
+      actionButton('审计', 'audit', () => props.onExportAudit()),
       actionButton(editing ? '取消编辑' : '编辑', 'edit', () => setEditing(!editing)),
       paused
         ? actionButton('恢复', 'resume', () => props.onState('resume'))
@@ -1639,6 +1642,25 @@ export function RoomsPage() {
     URL.revokeObjectURL(url)
   }, [rooms, selectedId, messages])
 
+  // 导出审计 JSONL
+  const exportAudit = useCallback(async () => {
+    if (selectedId === null) return
+    const room = rooms.find((r) => r.id === selectedId)
+    try {
+      const text = await fetchAudit(selectedId)
+      const blob = new Blob([text], { type: 'application/x-ndjson;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${room?.name ?? selectedId}.audit.jsonl`
+      a.click()
+      URL.revokeObjectURL(url)
+      setSendError(null)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '导出审计失败')
+    }
+  }, [rooms, selectedId])
+
   return h(
     'div',
     { style: { display: 'flex', height: '100%', minHeight: 0, fontFamily: 'inherit' } },
@@ -1757,6 +1779,7 @@ export function RoomsPage() {
                 }) => void editRoom(input),
                 onDelete: () => void removeRoom(),
                 onExport: () => exportRoom(),
+                onExportAudit: () => void exportAudit(),
                 versions,
                 onRollback: (hash: string) => void doRollback(hash),
                 onDecidePlan: (action: 'approve' | 'reject') => void decidePlanHandler(action),

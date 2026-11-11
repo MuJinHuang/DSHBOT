@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { newId, normalizeAcceptanceLine, nowIso, parseMentions } from '@dshbot/core'
+import { auditRecords, newId, normalizeAcceptanceLine, nowIso, parseMentions, toJsonl } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
@@ -433,6 +433,18 @@ export function createHandler(ctx: AgentContext) {
         }
 
         send(res, 400, { error: `未知动作：${action}` })
+        return
+      }
+
+      // ---- /rooms/:id/audit（导出 JSONL 审计）----
+      if (parts.length === 3 && parts[2] === 'audit' && method === 'GET') {
+        const body = toJsonl(auditRecords(messagesOf(roomId)))
+        res.writeHead(200, {
+          'content-type': 'application/x-ndjson; charset=utf-8',
+          'content-disposition': `attachment; filename="${roomId}.audit.jsonl"`,
+          'cache-control': 'no-store'
+        })
+        res.end(body)
         return
       }
 
