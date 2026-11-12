@@ -914,6 +914,7 @@ function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
     h(
       'button',
       {
+        'data-tab': value,
         onClick: () => setTab(value),
         style: {
           padding: '2px 10px',
@@ -1099,7 +1100,7 @@ function VersionsPanel(props: {
 }
 
 /** 审计 tab：按类型筛，工具调用点开看参数与输出。 */
-function AuditPanel(props: { roomId: string }) {
+function AuditPanel(props: { roomId: string; members: Member[] }) {
   const [records, setRecords] = useState<AuditRecord[]>([])
   const [filter, setFilter] = useState('all')
   const [open, setOpen] = useState<number | null>(null)
@@ -1126,6 +1127,8 @@ function AuditPanel(props: { roomId: string }) {
   const labelOf = (kind: string): string =>
     kind === 'all' ? '全部' : kind === 'human' ? '人话' : kind === 'bot' ? 'Bot' : kind === 'tool' ? '工具' : kind === 'assignment' ? '任务卡' : '系统'
   const shown = records.filter((record) => filter === 'all' || record.kind === filter)
+  const nameOf = (from: string): string =>
+    props.members.find((member) => member.botId === from)?.name ?? from
 
   return h(
     'div',
@@ -1219,7 +1222,7 @@ function AuditPanel(props: { roomId: string }) {
                   labelOf(record.kind)
                 ),
                 h('span', { style: { color: MUTED, flexShrink: 0, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis' } },
-                  record.from),
+                  nameOf(record.from)),
                 h('span', { style: { flex: 1, lineHeight: 1.5 } }, record.text),
                 record.card === undefined
                   ? null
@@ -1444,6 +1447,7 @@ function RoomDetail(props: {
     h(
       'button',
       {
+        'data-tab': value,
         onClick: () => setTab(value),
         style: {
           padding: '4px 12px',
@@ -1743,7 +1747,7 @@ function RoomDetail(props: {
     ),
 
     tab === 'audit'
-      ? h(AuditPanel, { roomId: room.id })
+      ? h(AuditPanel, { roomId: room.id, members: room.members ?? [] })
       : h(
           'div',
           {
