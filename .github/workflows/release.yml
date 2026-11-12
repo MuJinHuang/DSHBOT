@@ -36,7 +36,8 @@ jobs:
           cp -R packages/plugin/lib "$STAGE/lib"
           cp packages/plugin/package.json packages/plugin/cordis.patch.yml packages/plugin/icon.svg "$STAGE/"
           cp -R packages/plugin/locale "$STAGE/locale"
-          cp README.md LICENSE CHANGELOG.md "$STAGE/"
+          cp packages/plugin/README.md "$STAGE/README.md"
+          cp LICENSE CHANGELOG.md "$STAGE/"
           (cd dist && zip -qr "dshbot-plugin-${VERSION}.zip" "dshbot-plugin-${VERSION}")
           cp LICENSE packages/plugin/LICENSE
           (cd packages/plugin && pnpm pack --pack-destination ../../dist)
