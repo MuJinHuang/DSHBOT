@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import { acceptanceWarning, formatTokens } from '@dshbot/core'
 import type { Delivery, Member, Message, Room } from '@dshbot/core'
 import {
-  addMember,
   createRoom,
   deleteRoom,
   deliver,
@@ -67,6 +66,7 @@ export class RoomsBoundary extends Component<{ children: ReactNode }, { error: E
         h(
           'button',
           {
+            type: 'button',
             onClick: () => this.setState({ error: null }),
             style: {
               padding: '6px 14px',
@@ -107,32 +107,6 @@ const inputStyle = {
   fontFamily: 'inherit',
   width: '100%',
   boxSizing: 'border-box' as const
-}
-
-/** 状态灯颜色。 */
-const STATUS_COLOR: Record<string, string> = {
-  idle: '#9aa0a6',
-  queued: '#b0b0b0',
-  thinking: '#2f6fed',
-  acting: '#2f6fed',
-  waiting: '#e8a33d',
-  waiting_approval: '#e8a33d',
-  waiting_human: '#e8a33d',
-  done: '#2f9e44',
-  error: '#e5484d'
-}
-
-/** 状态灯文案。 */
-const STATUS_TEXT: Record<string, string> = {
-  idle: '空闲',
-  queued: '排队中',
-  thinking: '思考中',
-  acting: '操作中',
-  waiting: '等待',
-  waiting_approval: '等审批',
-  waiting_human: '等人',
-  done: '完成',
-  error: '出错'
 }
 
 function SectionTitle(props: { children?: React.ReactNode }) {
@@ -345,6 +319,7 @@ function CreateForm(props: {
       h(
         'button',
         {
+          type: 'button',
           onClick: submit,
           disabled: busy || !ready,
           style: {
@@ -363,6 +338,7 @@ function CreateForm(props: {
       h(
         'button',
         {
+          type: 'button',
           onClick: props.onCancel,
           style: {
             padding: '8px 16px',
@@ -404,6 +380,7 @@ function ToolRow(props: { message: Message; member?: Member }) {
     h(
       'button',
       {
+        type: 'button',
         onClick: () => setOpen((v) => !v),
         style: {
           display: 'flex',
@@ -781,6 +758,7 @@ function WorkspaceFilesPanel(props: { roomId: string }) {
       h(
         'button',
         {
+          type: 'button',
           onClick: () => void load(),
           style: {
             padding: '2px 8px',
@@ -806,6 +784,7 @@ function WorkspaceFilesPanel(props: { roomId: string }) {
             h(
               'button',
               {
+                type: 'button',
                 key: file.path,
                 onClick: () => void open(file.path),
                 style: {
@@ -914,6 +893,7 @@ function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
     h(
       'button',
       {
+        type: 'button',
         'data-tab': value,
         onClick: () => setTab(value),
         style: {
@@ -995,6 +975,7 @@ function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
                   h(
                     'button',
                     {
+                      type: 'button',
                       key: file,
                       onClick: () => void onOpenFile(file),
                       style: {
@@ -1072,6 +1053,7 @@ function VersionsPanel(props: {
         h(
           'button',
           {
+            type: 'button',
             onClick: () => {
               if (pending !== version.hash) {
                 setPending(version.hash)
@@ -1140,6 +1122,7 @@ function AuditPanel(props: { roomId: string; members: Member[] }) {
         h(
           'button',
           {
+            type: 'button',
             key: kind,
             onClick: () => setFilter(kind),
             style: {
@@ -1160,6 +1143,7 @@ function AuditPanel(props: { roomId: string; members: Member[] }) {
       h(
         'button',
         {
+          type: 'button',
           onClick: () => void load(),
           style: {
             padding: '2px 8px',
@@ -1306,6 +1290,7 @@ function PlanBanner(props: {
       h(
         'button',
         {
+          type: 'button',
           onClick: approve,
           disabled: props.busy || pickedCount === 0,
           style: {
@@ -1329,6 +1314,7 @@ function PlanBanner(props: {
       h(
         'button',
         {
+          type: 'button',
           onClick: () => props.onDecide('reject'),
           disabled: props.busy,
           style: {
@@ -1447,6 +1433,7 @@ function RoomDetail(props: {
     h(
       'button',
       {
+        type: 'button',
         'data-tab': value,
         onClick: () => setTab(value),
         style: {
@@ -1466,6 +1453,7 @@ function RoomDetail(props: {
   const actionButton = (label: string, action: string, onClick: () => void) =>    h(
       'button',
       {
+        type: 'button',
         key: action,
         onClick,
         style: {
@@ -1626,6 +1614,7 @@ function RoomDetail(props: {
             h(
               'button',
               {
+                type: 'button',
                 onClick: () => setEditing(false),
                 style: { ...inputStyle, width: 72, cursor: 'pointer' }
               },
@@ -1634,6 +1623,7 @@ function RoomDetail(props: {
             h(
               'button',
               {
+                type: 'button',
                 onClick: () => {
                   const acceptance = editAcceptance
                     .split('\n')
@@ -1768,6 +1758,7 @@ function RoomDetail(props: {
                 h(
                   'button',
                   {
+                    type: 'button',
                     onClick: props.onLoadOlder,
                     disabled: props.loadingOlder,
                     style: {
@@ -1855,6 +1846,7 @@ function RoomDetail(props: {
                     h(
                       'button',
                       {
+                        type: 'button',
                         onClick: () => {
                           props.onTakeover('return', returnNote.trim())
                           setReturnOpen(false)
@@ -1930,6 +1922,7 @@ function RoomDetail(props: {
             ? h(
                 'button',
                 {
+                  type: 'button',
                   onClick: () => props.onStop(),
                   style: {
                     padding: '9px 18px',
@@ -1946,6 +1939,7 @@ function RoomDetail(props: {
             : h(
                 'button',
                 {
+                  type: 'button',
                   onClick: submit,
                   disabled: draft.trim() === '',
                   style: {
@@ -2399,6 +2393,7 @@ export function RoomsPage() {
         h(
           'button',
           {
+            type: 'button',
             onClick: () => setView('rooms'),
             style: tabStyle(view === 'rooms')
           },
@@ -2407,6 +2402,7 @@ export function RoomsPage() {
         h(
           'button',
           {
+            type: 'button',
             onClick: () => setView('bots'),
             style: tabStyle(view === 'bots')
           },
@@ -2421,6 +2417,7 @@ export function RoomsPage() {
             h(
               'button',
               {
+                type: 'button',
                 onClick: () => {
                   setCreating(true)
                   setSelectedId(null)
@@ -2447,6 +2444,7 @@ export function RoomsPage() {
                     h(
                       'button',
                       {
+                        type: 'button',
                         key: room.id,
                         onClick: () => {
                           setCreating(false)
@@ -2481,6 +2479,7 @@ export function RoomsPage() {
             h(
               'button',
               {
+                type: 'button',
                 onClick: () => setBotId(null),
                 style: {
                   width: '100%',
@@ -2502,6 +2501,7 @@ export function RoomsPage() {
                   h(
                     'button',
                     {
+                      type: 'button',
                       key: bot.id,
                       onClick: () => setBotId(bot.id),
                       style: {

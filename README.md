@@ -96,7 +96,8 @@ pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 
 ```powershell
 pnpm install
-pnpm check        # 类型 + 构建 + 全部测试
+pnpm check        # lint + 类型 + 构建 + 全部测试
+pnpm test:coverage # 覆盖率门槛
 pnpm drill        # 一条命令演完：建房→派活→产出→验收（默认假宿主，0 token）
 pnpm drill -- --port 54873   # 打真实实例（会花 token）
 ```

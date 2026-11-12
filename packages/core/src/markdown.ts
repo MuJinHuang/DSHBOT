@@ -22,7 +22,9 @@ export function buildMarkdown(
   lines.push(`# ${room.name}`, '')
   lines.push(`> ${room.goal}`, '')
   lines.push('## 验收标准', '')
-  room.acceptance.forEach((item, index) => lines.push(`${index + 1}. ${item}`))
+  room.acceptance.forEach((item, index) => {
+    lines.push(`${index + 1}. ${item}`)
+  })
   lines.push('')
 
   if (room.delivery !== undefined) {

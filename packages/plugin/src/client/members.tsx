@@ -227,6 +227,7 @@ export function BotForm(props: {
       h(
         'button',
         {
+          type: 'button',
           onClick: () => void split(),
           disabled: splitting || persona.trim() === '',
           style: { ...smallButton(false), flex: '0 0 96px', opacity: splitting ? 0.5 : 1 }
@@ -254,17 +255,19 @@ export function BotForm(props: {
       { style: { display: 'flex', gap: 6 } },
       h(
         'button',
-        { onClick: () => void run('save'), disabled: busy, style: smallButton(true) },
+        {
+          type: 'button', onClick: () => void run('save'), disabled: busy, style: smallButton(true) },
         busy ? '保存中…' : props.initial === undefined ? '保存到库' : '保存修改'
       ),
       props.roomId === undefined
         ? null
         : h(
             'button',
-            { onClick: () => void run('join'), disabled: busy, style: smallButton(false) },
+            {
+              type: 'button', onClick: () => void run('join'), disabled: busy, style: smallButton(false) },
             '保存并加入房间'
           ),
-      h('button', { onClick: props.onCancel, style: smallButton(false) }, '取消')
+      h('button', { type: 'button', onClick: props.onCancel, style: smallButton(false) }, '取消')
     )
   )
 }
@@ -300,6 +303,7 @@ export function BotLibraryView(props: {
     h(
       'button',
       {
+        type: 'button',
         onClick,
         style: {
           padding: '5px 12px',
@@ -444,6 +448,7 @@ export function BotLibraryView(props: {
             h(
               'button',
               {
+                type: 'button',
                 onClick: () => void saveTeamNow(),
                 disabled: teamBusy,
                 style: { ...smallButton(true), flex: '0 0 96px' }
@@ -502,6 +507,7 @@ export function BotLibraryView(props: {
                     h(
                       'button',
                       {
+                        type: 'button',
                         onClick: () => void removeTeam(team.id),
                         style: {
                           padding: '1px 6px',
@@ -576,6 +582,7 @@ export function BotLibraryView(props: {
                 : h(
                     'button',
                     {
+                      type: 'button',
                       onClick: () => void download(selected),
                       style: {
                         padding: '4px 10px',
@@ -593,6 +600,7 @@ export function BotLibraryView(props: {
               h(
                 'button',
                 {
+                  type: 'button',
                   onClick: () => {
                     if (selected === null) return
                     void deleteBot(selected.id)
@@ -765,8 +773,8 @@ function MemberEditor(props: {
     h(
       'div',
       { style: { display: 'flex', gap: 4 } },
-      h('button', { onClick: () => void save(), disabled: busy, style: smallButton(true) }, busy ? '保存中…' : '保存'),
-      h('button', { onClick: props.onCancel, style: smallButton(false) }, '取消')
+      h('button', { type: 'button', onClick: () => void save(), disabled: busy, style: smallButton(true) }, busy ? '保存中…' : '保存'),
+      h('button', { type: 'button', onClick: props.onCancel, style: smallButton(false) }, '取消')
     )
   )
 }
@@ -784,6 +792,7 @@ export function MemberCard(props: {
     h(
       'button',
       {
+        type: 'button',
         onClick,
         style: {
           padding: '1px 5px',
@@ -965,6 +974,7 @@ export function MemberPanel(props: {
                     h(
                       'button',
                       {
+                        type: 'button',
                         key: bot.id,
                         onClick: () => {
                           void addMember(props.room!.id, { defId: bot.id })
@@ -992,6 +1002,7 @@ export function MemberPanel(props: {
                   h(
                     'button',
                     {
+                      type: 'button',
                       onClick: props.onOpenLibrary,
                       style: {
                         marginTop: 2,
@@ -1021,6 +1032,7 @@ export function MemberPanel(props: {
         : h(
             'button',
             {
+              type: 'button',
               onClick: () => setOpen(true),
               style: {
                 width: '100%',

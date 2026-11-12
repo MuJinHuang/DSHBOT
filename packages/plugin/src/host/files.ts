@@ -5,6 +5,7 @@
  * 这两个函数把工作区变成可读的列表与预览——只读，不写。
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
+import type { Dirent } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /** 列目录时跳过的东西：版本库与依赖不属于"产物"。 */
@@ -38,7 +39,7 @@ export function listWorkspaceFiles(
 
   const walk = (dir: string, depth: number): void => {
     if (truncated) return
-    let entries
+    let entries: Dirent[]
     try {
       entries = readdirSync(dir, { withFileTypes: true })
     } catch {
@@ -105,7 +106,7 @@ export function readWorkspaceFile(root: string, requested: string): FilePreview 
   const joined = safeJoin(root, requested)
   if ('error' in joined) return { ok: false, status: 400, error: joined.error }
 
-  let stat
+  let stat: ReturnType<typeof statSync>
   try {
     stat = statSync(joined.full)
   } catch {

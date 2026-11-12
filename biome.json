@@ -1,0 +1,50 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
+  "files": {
+    "includes": [
+      "packages/**/src/**/*.ts",
+      "packages/**/src/**/*.tsx",
+      "packages/**/build.mjs",
+      "tests/**/*.mjs",
+      "spike/**/*.mjs",
+      "scripts/**/*.mjs",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/lib"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "useExhaustiveDependencies": "off",
+        "useJsxKeyInIterable": "off"
+      },
+      "style": {
+        "useTemplate": "off",
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noArrayIndexKey": "off"
+      }
+    }
+  },
+  "javascript": {
+    "globals": [
+      "window",
+      "document",
+      "fetch",
+      "EventSource",
+      "URL",
+      "Blob",
+      "File",
+      "FileList",
+      "HTMLInputElement"
+    ]
+  }
+}

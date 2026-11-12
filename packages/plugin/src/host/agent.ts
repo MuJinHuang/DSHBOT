@@ -380,7 +380,6 @@ export async function runOnce(
   if (timer !== undefined) clearTimeout(timer)
   off?.()
 
-  const liveSession = (agent as unknown as { session?: SessionLike & { events?: unknown } }).session
   const readEvents = (s: unknown): unknown[] => {
     if (s === null || typeof s !== 'object') return []
     const value = (s as { events?: unknown }).events

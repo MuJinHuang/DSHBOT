@@ -69,6 +69,7 @@ Data lives in `%USERPROFILE%\.dsh\dshbot\` (`rooms.json` + `rooms/<id>/messages.
 
 ```powershell
 pnpm check
+pnpm test:coverage
 pnpm drill                    # full flow with a fake host, 0 tokens
 pnpm drill -- --port 54873    # against a live DSH instance (costs tokens)
 ```
