@@ -1432,6 +1432,7 @@ function RoomDetail(props: {
           fontSize: 11.5,
           fontFamily: 'inherit',
           cursor: 'pointer',
+          whiteSpace: 'nowrap',
           opacity: 0.85
         }
       },
@@ -1443,8 +1444,8 @@ function RoomDetail(props: {
     { style: { maxWidth: 680, display: 'flex', flexDirection: 'column', height: '100%' } },
     h(
       'div',
-      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
-      h('div', { style: { fontSize: 17 } }, room.name),
+      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' } },
+      h('div', { style: { fontSize: 17, whiteSpace: 'nowrap' } }, room.name),
       h(Badge, {}, STATUS_LABEL[room.status] ?? room.status),
       h('div', { style: { flex: 1 } }),
       actionButton(

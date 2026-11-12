@@ -793,7 +793,9 @@ export function MemberCard(props: {
           color: danger ? '#e5484d' : MUTED,
           fontSize: 10,
           fontFamily: 'inherit',
-          cursor: 'pointer'
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+          flexShrink: 0
         }
       },
       label
@@ -813,16 +815,28 @@ export function MemberCard(props: {
     h(
       'div',
       { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 } },
-      h('span', { style: { fontSize: 15 } }, member.avatar),
-      h('span', { style: { fontSize: 13 } }, member.name),
+      h('span', { style: { fontSize: 15, flexShrink: 0 } }, member.avatar),
+      h(
+        'span',
+        {
+          style: {
+            fontSize: 13,
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }
+        },
+        member.name
+      ),
       member.role === 'host'
         ? h(
             'span',
-            { style: { fontSize: 10, color: MUTED, border: LINE, borderRadius: 3, padding: '0 3px' } },
+            { style: { fontSize: 10, color: MUTED, border: LINE, borderRadius: 3, padding: '0 3px', flexShrink: 0 } },
             '总管'
           )
         : null,
-      h('div', { style: { flex: 1 } }),
       props.onEdit === undefined ? null : action('改', props.onEdit),
       props.onRemove === undefined
         ? null
