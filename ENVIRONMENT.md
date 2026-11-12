@@ -1,6 +1,6 @@
 # 开发环境清单
 
-> 安装日期：2026-11-06　机器：Windows 11 专业版 / AMD64　账号：MUNIAN\14153（非管理员）
+> 安装日期：2026-11-06　机器：Windows 11 专业版 / AMD64　账号：普通用户（非管理员）
 
 ## 已安装
 
@@ -18,12 +18,12 @@ pnpm 版本特意与 DSH 内置版本（11.28.5）对齐，避免锁文件格式
 用户 PATH（已追加，原有 `WindowsApps` 保留）：
 
 ```
-C:\Users\14153\AppData\Local\Programs\Git\cmd
-C:\Users\14153\AppData\Local\Programs\nodejs
-C:\Users\14153\AppData\Roaming\npm
+%LOCALAPPDATA%\Programs\Git\cmd
+%LOCALAPPDATA%\Programs\nodejs
+%APPDATA%\npm
 ```
 
-npm 全局前缀：`C:\Users\14153\AppData\Roaming\npm`（写用户目录，不需要管理员）。
+npm 全局前缀：`%APPDATA%\npm`（写用户目录，不需要管理员）。
 
 原始 PATH 备份：`%TEMP%\dshbot-setup\user-path-backup.txt`
 
@@ -38,10 +38,9 @@ npm 全局前缀：`C:\Users\14153\AppData\Roaming\npm`（写用户目录，不�
 | 目标 | 状态 | 说明 |
 |---|---|---|
 | nodejs.org / registry.npmjs.org / npmmirror | 可达 | 依赖安装正常 |
-| github.com | **超时** | 已改用 npmmirror 镜像下载 Git |
-| 本地代理 127.0.0.1:7890 | 未运行 | 系统代理已配置但 `ProxyEnable=0` |
+| github.com | 视网络而定 | 不通时用 npmmirror 镜像，或用代理 |
 
-> 后续要推 GitHub / 用 GitHub CLI，需要先开代理，或改用其他托管（Gitee、自建）。
+> 推 GitHub / 用 GitHub CLI 需要能访问 github.com；按自己的网络环境准备代理或改用其他托管。
 
 ## Git 配置
 

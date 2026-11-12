@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a capability or an improvement
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the workflow, not just the feature.
+      placeholder: "When a room has more than 3 bots, I cannot tell ..."
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Rooms / planning
+        - Bots / library
+        - Delivery / files
+        - Cost / budget
+        - Install / packaging
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Compatibility
+      options:
+        - label: I understand some features are blocked by DSH plugin APIs (in-room approvals, hard write locks, per-tool streaming).

@@ -62,7 +62,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 - **复用**：房间「另存为」复制目标/验收/成员（不带消息）；
 - **护栏**：预算熔断、运行超时可配、启动自愈、停止按钮、验收全是文字时给 warning。
 
-规模：54 次提交、23 个源文件 / 7580 行、101 个单测、`pnpm check` 一键校验。
+规模：58 次提交、23 个源文件 / 7748 行、109 个单测、`pnpm check` 一键校验。
 
 **还不能**：房间内审批卡、真写锁、逐条工具事件推流（受 DSH 接口限制，见 [下一阶段任务.md](下一阶段任务.md) 第五节）。
 
@@ -74,7 +74,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | M1 多 Bot | ✅（M1-5 软写锁；硬锁受限于 DSH） |
 | M2 插手与接管 | ✅（审批卡受限于 DSH） |
 | M3 交付 | ✅ |
-| 工程化 | ✅ 101 测试 · CI · 自愈 · 熔断 · 审计 · drill |
+| 工程化 | ✅ 109 测试 · CI · 自愈 · 熔断 · 审计 · drill |
 | 下一阶段 N1 | ✅ 五组全部完成（A 运维 / B 产物 / C 复用 / D 规模 / E 护栏），见 [TASKS.md](TASKS.md) |
 | S0–M3 明细 | 见 [TASKS.md](TASKS.md)——状态列以代码为准，改完代码立刻回去改那里 |
 
@@ -223,6 +223,19 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | E | 谓词提醒 / 数字自检 | ✅ | 全是文字验收返回 warning；提示词要求算式与复算 |
 | E | CI | ✅ | drill 以测试形式随 `pnpm check` 跑 |
 
+### 第十五批（开源发布 P0）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| bundle 一键安装 | ✅ | 包内 `dsh.bundle.patch`；`dsh plugin add` 自动注册 profile 层，不再手改补丁 |
+| 安装脚本迁移 | ✅ | `install.mjs` 自动加 bundles、清理旧 managed 段；`link:` 路径不再写死 |
+| 元数据 | ✅ | LICENSE、locale(en/zh)、icon、keywords/author/engines、去掉 private 与 peer 依赖 |
+| 发布工作流 | ✅ | tag `v*` → check → zip + tgz + SHA256 → GitHub Release |
+| README | ✅ | 中文重写 + 英文版；4 张脱敏截图；安装/限制/隐私/开发完整 |
+| 社区文件 | ✅ | SECURITY / CONTRIBUTING / CODE_OF_CONDUCT / issue+PR 模板 / CHANGELOG |
+| 真问题修复 | ✅ | 预算与模式可在界面改；上下文预算保任务；空闲 SSE 不再反复拉消息 |
+| 测试 | ✅ | 109 个用例（新增发布形态检查） |
+
 ## 3. 代码地图
 
 ```
@@ -230,16 +243,16 @@ packages/
   core/            零 DSH 依赖：Room/Bot/Seat/Message/Assignment/Artifact 类型 + id 工具
   plugin/
     src/index.ts        Host 插件入口：注入 webServer/agents/sessions，挂路由
-    src/host/api.ts     路由：/dshbot/api/{health,rooms,_probe}
+    src/host/api.ts     路由：health / presets / bots / rooms / files / audit
     src/host/store.ts   房间/Bot/团队存储；消息按房间写 `messages.jsonl`（含旧数据迁移）
     src/host/files.ts   工作区文件列表与文本预览（挡二进制/超大/越界）
-    src/host/agent.ts   ⚠ 进程内跑 agent 回合（M0-3 卡点在这）
+    src/host/agent.ts   进程内跑 agent 回合（sessionController.agents.createSession）
     src/client/index.ts 注册 main 面板 + 侧栏入口
     src/client/page.tsx 房间页（三栏）
     src/client/api.ts   浏览器侧 fetch（文档相对路径）
   cli/             dsh-bot 骨架命令
-scripts/install.mjs  构建 → 类型检查 → link: 进 profile → 补丁层托管段
-tests/           101 个用例：纯函数 + 真 HTTP 处理器 + drill
+scripts/install.mjs  构建 → 类型检查 → link: 进 profile → 同步 bundle 层 / 清理旧补丁
+tests/           109 个用例：纯函数 + 真 HTTP 处理器 + drill + 发布形态
 spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档、drill.mjs）
 ```
 
@@ -248,11 +261,11 @@ spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档
 | 项 | 值 |
 |---|---|
 | DSH 版本 | 0.2.1-rc.5 |
-| DSH home | `C:\Users\14153\.dsh` |
+| DSH home | `%USERPROFILE%\.dsh` |
 | 桌面端 profile | `desktop`（**被 Electron 独占**，CLI 不能 dump-config） |
 | 开发 profile | `dshbot-dev`（从 web 复制，端口 54873） |
 | 安装方式 | `link:`（软链），不是 `file:`（拷贝） |
-| 补丁层 | `profiles/<name>/cordis.patch.yml` 里的 `# >>> dshbot:managed` 段 |
+| Loader 层 | 包内 `dsh.bundle.patch`（`cordis.patch.yml` 自动插入）；`install.mjs` 会清理旧的托管段 |
 | 数据 | `~/.dsh/dshbot/rooms.json`（房间 / Bot 库 / 团队）+ `rooms/<id>/messages.jsonl`（消息） |
 | 权限 | 非管理员；Node/pnpm/Git 装在 `%LOCALAPPDATA%\Programs` |
 | 网络 | GitHub 不通，用 npmmirror；npm registry 正常 |
@@ -266,6 +279,7 @@ spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档
 4. **Run 不能用子进程**：`dsh headless` 拿不到账号 token——`resolveToken` 要求 `destination.origin === inferenceOrigin`，裸 CLI 对不上。详见 [spike/x1-findings.md](spike/x1-findings.md)。
 5. **session 事件形状**：`{ log: [{ type, seq, time, data }] }`，含 `turn/start`、`step/start`、`agent/inbox/spliced`、`turn/end`。这就是 M0-4 消息流的数据源。
 6. **agent 句柄**：`ctx.agents.create()` 返回 `{ agent, dispose }`，真句柄在 `agent` 上，有 `followup()`。
+7. **bundle 安装**：package.json 里声明 `dsh.bundle.patch`（YAML 指向 `cordis.patch.yml`），`dsh plugin add` 会把包加进 `dsh.profile.bundles` 并自动插入 Loader 行；**不要再手写同一个 id**，否则重复。`dsh plugin add "link:..."` 在 PATH 没有 Node/pnpm 时也可用（DSH 自带）。
 
 ## 6. 当前限制（不是卡点）
 
@@ -302,7 +316,7 @@ dsh --profile dshbot-dev --port 54873 --no-open                               # 
 
 ## 8. 下一步
 
-N1 已收口（A–E 全部完成，101 个用例，真实 drill 跑通）。接下来按真实需求选，不提前造：
+N1 已收口（A–E 全部完成，109 个用例，真实 drill 跑通）。接下来按真实需求选，不提前造：
 
 1. **M4 技能/例行**：把一次执行存成技能、或按时间触发房间——等真有重复任务再做；
 2. **M5 浏览器画面**：要 Bot 操作网页时再做；
@@ -316,9 +330,9 @@ N1 已收口（A–E 全部完成，101 个用例，真实 drill 跑通）。接
 | 坑 | 表现 | 处理 |
 |---|---|---|
 | JSON 带 BOM | `dsh plugin add` 报 `Unexpected token '﻿'` | 写 JSON 一律无 BOM UTF-8 |
-| 补丁层裸加条目 | `patch: entry "x" not found` | 必须写 `- insert: [...]` |
+| 补丁层裸加条目 | `patch: entry "x" not found` | 旧版手写补丁才需要 `- insert: [...]`；v0.2 用 bundle，不用手写 |
 | `file:` 依赖 | 重建后 profile 还是旧代码 | 用 `link:` |
-| 重复 id | 补丁层出现两个同名条目，Loader 报错 | 脚本已加防护，手写时注意 |
+| 重复 id | bundle 与旧 `# >>> dshbot:managed` 同时插入 `id: dshbot`，Loader 报错 | `scripts/install.mjs` 会自动备份并清掉旧段；别手写 |
 | `desktop` profile | CLI 报 `managed exclusively` | 正常，用 `dshbot-dev` 做组合校验 |
 | 旧 PowerShell 窗口 | `dsh : 无法将…识别为…` | 重载 `$env:Path` 或开新窗口 |
 | 根包 `type: module` | `.js` 脚本里的 `require` 报错 | 改用 `.cjs` |

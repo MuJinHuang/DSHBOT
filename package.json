@@ -1,8 +1,12 @@
 {
   "name": "dshbot",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "description": "A DSH plugin that runs a room of role-based bots: plan, split work, deliver files.",
+  "license": "MIT",
+  "author": "DSHBot contributors",
+  "keywords": ["dsh", "deepseek-harness", "plugin", "multi-agent", "rooms"],
   "packageManager": "pnpm@11.28.5",
   "engines": {
     "node": ">=22"

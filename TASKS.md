@@ -139,6 +139,21 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 
 ---
 
+## 开源发布 P0
+
+| ID | 任务 | 验收 | 状态 |
+|---|---|---|---|
+| P0-1 | LICENSE 与元数据 | 根 LICENSE；包 license/author/keywords/engines；去掉 private 与 peer 依赖 | ✅ |
+| P0-2 | bundle 一键安装 | `dsh.bundle.patch`；`dsh plugin add` 自动注册 profile 层；干净 profile 实测 | ✅ |
+| P0-3 | Release 工作流 | tag `v*` → check → zip + tgz + SHA256 → GitHub Release | ✅ |
+| P0-4 | README 门面 | 中英双语、4 张脱敏截图、安装/限制/隐私/开发 | ✅ |
+| P0-5 | 文档脱敏 | 去掉用户名与本机绝对路径；截图不含个人信息 | ✅ |
+| P0-6 | 安全与社区 | SECURITY / CONTRIBUTING / CODE_OF_CONDUCT / issue+PR 模板 / CHANGELOG | ✅ |
+| P0-7 | 安装脚本迁移 | 自动同步 bundles、清理旧 managed 段、不写死 dsh 路径 | ✅ |
+| P0-8 | 三个真问题 | 预算/模式可改；上下文保任务；空闲 SSE 不重拉 | ✅ |
+
+---
+
 ## M4 技能与例行（约 3 人日，MVP 之后）
 
 | ID | 任务 | 验收 | 依赖 | 估时 | 状态 |

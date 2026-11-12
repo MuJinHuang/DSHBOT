@@ -1,9 +1,11 @@
 {
   "name": "@dshbot/core",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "DSHBot 的编排内核：与 DSH 无关的领域模型与状态机",
+  "license": "MIT",
+  "author": "DSHBot contributors",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

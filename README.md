@@ -1,102 +1,109 @@
-# DSHBot
+# DSHBot Rooms
 
-在 DSH 里开一个**房间**，拉几个有名字、有工位、有记忆的 Bot 同事进来，说一句话，它们分头干活；你看着、随时插手、该拦的拦住。
+**在 DSH 里开一个房间，拉几个有名字、有岗位的 Bot 同事进来，说一句话，它们分头干活。**
 
-> 目标形态参照 Grok Bot，但数据完全留在本地，且 Bot 的能力可改、可接私有工具。
-> 当前版本：**v0.2.0**（M0–M3 + N1：能修、能看、能复用）
+你只需要做三件事：定目标、批计划、验产物。其余交给房间。
 
-**想上手？直接看 [实验案例.md](实验案例.md)**——照着做一个约 1 分钟的完整任务。
+> English: [README.en.md](README.en.md) · 当前版本 **v0.2.0** · 100+ 个用例 · 运行时**零第三方依赖**
 
-## 现在能做什么
+![房间页：计划确认与多 Bot 协作](docs/assets/rooms.png)
 
-| 能力 | 状态 |
+## 为什么不是"再套一层聊天框"
+
+普通的多 Agent 对话，最后往往变成"几个 Bot 互相复述"。DSHBot 把协作压到四个可检查的环节：
+
+1. **房间 = 任务**：一个目标 + 若干条验收标准；验收可以写成 `file:路径` / `cmd:命令`，由机器判，不花 token；
+2. **总管先出计划**：confirm 模式下先给你看要派几件事，可以全批、**勾选部分批准**，没选中的标 `skipped`；
+3. **执行者各干各的**：一人一个 session，每轮只拼一小段房间近况（≤2400 字），不灌别人的历史；
+4. **交付可追溯**：工作区有独立快照仓库，能看 diff、回滚；交付面板直接读产物正文；审计可导出 JSONL。
+
+## 30 秒上手
+
+### 方式 A：下载 Release（不需要 Node / pnpm）
+
+1. 从 [Releases](../../releases) 下载 `dshbot-plugin-v0.2.0.zip`，解压到一个固定目录，例如 `%USERPROFILE%\dshbot-plugin`；
+2. 用 DSH 自带的 CLI 装进你的 profile：
+
+   ```powershell
+   dsh plugin --profile desktop add "link:%USERPROFILE%\dshbot-plugin"
+   ```
+
+   （`dsh` 在 DSH 安装目录的 `resources\runtime\cli\bin\` 下；找不到就把该目录加进 PATH。）
+3. **重启 DSH**，侧栏出现 🏠「房间」。
+
+包内已经声明 `dsh.bundle.patch`，**不需要手改 `cordis.patch.yml`**。
+
+### 方式 B：从源码
+
+```powershell
+pnpm install
+pnpm check                # 类型检查 + 构建 + 100+ 个用例
+pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
+# 重启 DSH
+```
+
+## 能做什么
+
+| 能力 | 说明 |
 |---|---|
-| 建房间（目标 + 验收标准） | ✅ |
-| 绑定工作目录：Bot 能直接读你的项目；不绑定则用房间空目录 | ✅ |
-| 拉多个 Bot 进房间，各有独立会话与花费 | ✅ |
-| `@名字` 指定谁接话；多 Bot 时不 @ 没人抢话 | ✅ |
-| 总管按回复里的 `@名字` 派活，生成任务卡（进行中 → 完成/失败） | ✅ |
-| 计划确认门：confirm 模式下先给人看计划，批准才开跑 | ✅ |
-| 执行者带上下文块（房间目标 + 最近动态 + 自己的任务） | ✅ |
-| 工具动作折叠展示，点开看参数与输出 | ✅ |
-| Bot 回复按 Markdown 渲染（代码块 / 列表 / 表格 / 加粗） | ✅ |
-| 运行中能看到「正在 xxx…」的实时活动 | ✅ |
-| 交付验收：逐条判 pass/fail/存疑 + 变更文件 + 花费 | ✅ |
-| 结构化验收：`file:` 看文件、`cmd:` 看退出码，机器判定不花钱 | ✅ |
-| 预算熔断：房间 / 个人到线直接停跑，单轮超支事后留痕 | ✅ |
-| 工作区版本快照 + 一键回滚（独立快照仓库，不污染你的 git） | ✅ |
-| 变更文件点开看 diff（相对上次快照） | ✅ |
-| 审计导出：整房间动作序列存 JSONL，可回放 | ✅ |
-| 暂停 / 归档 / 仅@响应 / `@所有人 停` | ✅ |
-| 停止正在跑的一轮 | ✅ |
-| 接管：暂停后人工改，交还时写一句改动喂回房间 | ✅ |
-| 编辑房间（改名 / 改目标 / 改验收）、删除房间 | ✅ |
-| 导出整份对话与交付为 Markdown | ✅ |
-| 拉人时选角色（总管 / 执行） | ✅ |
-| 房间内改成员（名字/岗位/专长/输出/工具集）与移出 | ✅ 只改本房间副本，不动库里的卡 |
-| 交付页「文件」tab：直接浏览、预览工作区产物（Markdown 渲染） | ✅ 二进制/超大/越界都拒绝 |
-| 计划部分批准：勾选想做的几件，其余标 skipped | ✅ |
-| 独立的 Bot 库页面：建 / 改 / 删，房间外维护 | ✅ |\n| 房间内可从库拉入，也可临时建一个 | ✅ |
-| Bot 卡导出 / 导入（JSON，可分享给同事） | ✅ |
-| 团队模板：一组 Bot 存起来，建房时一键拉入 | ✅ |
-| 房间另存为：复制目标/验收/成员，不带消息 | ✅ |
-| 消息分页：滚到顶「加载更早的消息」 | ✅ 旧 rooms.json 自动迁移，消息按房间分文件 |
-| 审计 tab：按类型筛，点开看单条工具调用 | ✅ 导出 JSONL 照旧 |
-| 角色卡自动拆分：贴一大段，按标签拆成岗位/专长/输出规范 | ✅ |
-| 每个 Bot 可选工具集（agent preset，如 minimal 禁文件读写） | ✅ |
-| 软写锁：任务里声明的文件冲突会提醒 | ✅ |
-| 房间状态实时推送（SSE） | ✅ 逐条工具事件仍等整轮 |
-| 单元测试 | ✅ `pnpm check` = 类型检查 + 101 个用例（含一次 drill） |
-| 回归演练 | ✅ `pnpm drill`：建房→派活→产出文件→验收通过（默认 0 token） |
-| 房间级审批卡、硬写锁 | ⬜ 受 DSH 接口限制，见 TASKS（软写锁、预算熔断已完成） |
+| 房间与验收 | 目标、多条验收；`file:` / `cmd:` 机器判定；全是文字验收时给 warning |
+| 多 Bot 协作 | 总管拆活、按 `@名字` 派活、任务卡生命周期、handoff 结论摘要 |
+| 计划确认 | confirm / auto 两种模式；**部分批准**，未选中的任务卡标 `skipped` |
+| Bot 库 | 岗位、专长、输出规范、工具集（agent preset）；导出 / 导入 JSON |
+| 团队模板 | 常一起干活的几只 Bot 存成团队，建房一键拉入 |
+| 成员运维 | 房间内直接改名字/岗位/专长/工具集，或移出，不用重建房间 |
+| 交付 | 变更文件、diff、版本快照与回滚、导出 Markdown / 审计 JSONL |
+| 产物浏览 | 交付面板「文件」tab 直接列出工作区文件，`.md` 按 Markdown 渲染 |
+| 审计 | 「消息流 / 审计」tab，按类型筛，点开看工具参数与输出 |
+| 规模 | 消息按房间存 `messages.jsonl`，分页加载；`rooms.json` 只存房间 |
+| 成本护栏 | 单轮 / 单人 / 房间预算，界面可改；到线拒跑；超支留痕 |
+| 可靠性 | 启动自愈、停止按钮、超时标注、预算熔断、失败隔离 |
 
-## 结构
+### 截图
 
-```
-packages/
-  core/     领域模型与状态机，零 DSH 依赖
-  plugin/   DSH 插件：Host 侧编排 + 房间页面（React）
-  cli/      dsh-bot 命令行（骨架）
-spike/     验证记录、截图与取证脚本
-```
+| 交付产物 | 审计 |
+|---|---|
+| ![交付面板的文件 tab](docs/assets/files.png) | ![审计 tab](docs/assets/audit.png) |
 
-任务拆分见 [TASKS.md](TASKS.md)，架构决策见 [M1-技术方案.md](M1-技术方案.md)，当前状态见 [STATE.md](STATE.md)。
+| Bot 库与团队模板 |
+|---|
+| ![Bot 库](docs/assets/library.png) |
 
-## 配置
+## 安装与兼容
 
-单轮 Run 默认最多等 **5 分钟**，超时会明确标注「本轮被超时截断」并说明结论可能不完整。
-改代码这类长任务可以调大：
+- 详细步骤、卸载与排错见 [INSTALL.md](INSTALL.md)；
+- 已在 **DSH 0.2.1-rc.5**（Windows）上验证；插件依赖 DSH 的 `webServer` / `agents` / `sessions` / `sessionController`，其他版本可能不兼容；
+- **不需要** Node、pnpm、Python 或管理员权限；系统 `git` 可选（没有时版本快照/diff/回滚降级，不影响主流程）。
 
-```jsonc
-// %USERPROFILE%\.dsh\dshbot\config.json
-{
-  "runTimeoutMs": 600000   // 10 分钟，范围 10 秒 ~ 30 分钟
-}
-```
+## 已知限制
 
-也可以用环境变量临时覆盖：`$env:DSHBOT_RUN_TIMEOUT_MS = '600000'`（优先级更高）。
+这些是宿主接口决定的，硬做只能是假的：
+
+- **房间内审批卡**：DSH 不暴露工具调用拦截钩子，现依赖 DSH 自带审批 + 计划确认；
+- **硬写锁**：现在是软约束（任务里抽文件声明 + 冲突提醒）；
+- **逐条工具事件推流**：服务端 1.2s 快照 + 内存活动行，不是逐 token 流；
+- **依赖编排（DAG）**：目前靠提示词约束"先上游后下游"。
+
+另外：API 只监听回环、不做鉴权；`cmd:` 验收会执行你写的命令。请阅读 [SECURITY.md](SECURITY.md)。
+
+## 数据与隐私
+
+- 数据在 `%USERPROFILE%\.dsh\dshbot\`：`rooms.json`（房间/Bot/团队）+ `rooms/<id>/messages.jsonl`；
+- **没有遥测**，不向任何分析服务上报；网络请求只发生在 DSH 调用模型时；
+- 旧版本 `rooms.json` 里的消息会在首次读取时自动迁移到分文件（按消息 id 去重）。
 
 ## 开发
 
 ```powershell
 pnpm install
-pnpm build        # 产出 packages/plugin/lib/{index,client}.js 与 cli/bin
-pnpm typecheck
-pnpm drill        # 建房→派活→产出→验收，一条命令演一遍（默认不花钱）
-pnpm drill -- --port 54873   # 打真实开发实例（会花 token，需先启动）
-
-# 一条命令装进 DSH（构建 + 类型检查 + 链接 + 补丁层，幂等）
-pnpm install:profile
-# 或指定别的 profile
-$env:DSHBOT_PROFILE = 'dshbot-dev'; pnpm install:profile
+pnpm check        # 类型 + 构建 + 全部测试
+pnpm drill        # 一条命令演完：建房→派活→产出→验收（默认假宿主，0 token）
+pnpm drill -- --port 54873   # 打真实实例（会花 token）
 ```
 
-装完**重启 DSH** 才生效——Loader 条目只在启动时组合。
+架构与决策：[STATE.md](STATE.md)、[TASKS.md](TASKS.md)、[M1-技术方案.md](M1-技术方案.md)；
+贡献前请读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-安装细节见 [INSTALL.md](INSTALL.md)。
+## License
 
-## 关键约束
-
-- **客户端不能用第二份 React**：`react` 系列在 `build.mjs` 里是 external，运行时取宿主 shell 的那份；
-- **core 不许 import `@deepseek-ai/*`**：它要能被 CLI、插件、将来的独立服务同时复用；
-- **客户端产物必须是 `lib/client.js`**，且包在 `window.__ModuleLoader__.load({ id, factory })` 里。
+[MIT](LICENSE)
