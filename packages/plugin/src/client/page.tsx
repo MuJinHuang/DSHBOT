@@ -1,4 +1,4 @@
-import { Component, createElement as h, useCallback, useEffect, useState } from 'react'
+import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { acceptanceWarning, formatTokens } from '@dshbot/core'
 import type { Delivery, Member, Message, Room } from '@dshbot/core'
@@ -195,6 +195,7 @@ function CreateForm(props: {
   const [goal, setGoal] = useState('')
   const [acceptance, setAcceptance] = useState('')
   const [workspace, setWorkspace] = useState('')
+  const [mode, setMode] = useState<'confirm' | 'auto'>('confirm')
   const [teamId, setTeamId] = useState('')
   const [teams, setTeams] = useState<TeamTemplate[]>([])
   const [busy, setBusy] = useState(false)
@@ -220,7 +221,8 @@ function CreateForm(props: {
           .map((line) => line.trim())
           .filter(Boolean),
         ...(workspace.trim() === '' ? {} : { workspaceDir: workspace.trim() }),
-        ...(teamId === '' ? {} : { teamId })
+        ...(teamId === '' ? {} : { teamId }),
+        mode
       })
       props.onCreated(room)
     } catch (err) {
@@ -228,7 +230,7 @@ function CreateForm(props: {
     } finally {
       setBusy(false)
     }
-  }, [name, goal, acceptance, workspace, teamId, props])
+  }, [name, goal, acceptance, workspace, teamId, mode, props])
 
   const inputStyle = {
     width: '100%',
@@ -318,6 +320,21 @@ function CreateForm(props: {
       }),
       h('div', { style: { fontSize: 11, color: MUTED, marginTop: 6, lineHeight: 1.6 } },
         'Bot 只能看到这个目录里的文件。要让它们读你的项目，必须在这里填项目路径。')
+    ),
+
+    h('div', { style: { marginBottom: 18 } },
+      h('div', { style: { fontSize: 12, marginBottom: 6 } }, '执行方式'),
+      h(
+        'select',
+        {
+          value: mode,
+          onChange: (e: { target: { value: string } }) =>
+            setMode(e.target.value === 'auto' ? 'auto' : 'confirm'),
+          style: inputStyle
+        },
+        h('option', { value: 'confirm' }, '人工确认：总管出计划，我批准后执行'),
+        h('option', { value: 'auto' }, '自动执行：总管派活后直接开跑')
+      )
     ),
 
     error
@@ -1360,7 +1377,14 @@ function RoomDetail(props: {
   onDeliver: () => void
   onTakeover: (action: 'take' | 'return', note?: string) => void
   onStop: () => void
-  onEdit: (input: { name: string; goal: string; acceptance: string[]; workspaceDir: string }) => void
+  onEdit: (input: {
+    name: string
+    goal: string
+    acceptance: string[]
+    workspaceDir: string
+    mode: 'confirm' | 'auto'
+    budget: { perRun: number; perBot: number; perRoom: number }
+  }) => void
   onDelete: () => void
   onClone: () => void
   onExport: () => void
@@ -1383,7 +1407,24 @@ function RoomDetail(props: {
   const [editGoal, setEditGoal] = useState(room.goal)
   const [editAcceptance, setEditAcceptance] = useState(room.acceptance.join('\n'))
   const [editWorkspace, setEditWorkspace] = useState(room.workspaceDir ?? '')
+  const [editMode, setEditMode] = useState<'confirm' | 'auto'>(room.mode === 'auto' ? 'auto' : 'confirm')
+  const [editPerRun, setEditPerRun] = useState(room.budget?.perRun ?? 200_000)
+  const [editPerBot, setEditPerBot] = useState(room.budget?.perBot ?? 800_000)
+  const [editPerRoom, setEditPerRoom] = useState(room.budget?.perRoom ?? 1_500_000)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // 换房间时重置编辑态，别把上一个房间的值带过来
+  useEffect(() => {
+    setEditName(room.name)
+    setEditGoal(room.goal)
+    setEditAcceptance(room.acceptance.join('\n'))
+    setEditWorkspace(room.workspaceDir ?? '')
+    setEditMode(room.mode === 'auto' ? 'auto' : 'confirm')
+    setEditPerRun(room.budget?.perRun ?? 200_000)
+    setEditPerBot(room.budget?.perBot ?? 800_000)
+    setEditPerRoom(room.budget?.perRoom ?? 1_500_000)
+    setEditing(false)
+  }, [room.id])
 
   const submit = () => {
     const text = draft.trim()
@@ -1525,6 +1566,53 @@ function RoomDetail(props: {
           }),
           h(
             'div',
+            { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+            h(
+              'select',
+              {
+                value: editMode,
+                onChange: (e: { target: { value: string } }) =>
+                  setEditMode(e.target.value === 'auto' ? 'auto' : 'confirm'),
+                style: { ...inputStyle, flex: '1 1 200px' }
+              },
+              h('option', { value: 'confirm' }, '人工确认计划'),
+              h('option', { value: 'auto' }, '自动执行计划')
+            ),
+            h('input', {
+              type: 'number',
+              min: 0,
+              step: 10_000,
+              value: editPerRun,
+              placeholder: '单轮预算',
+              onChange: (e: { target: { value: string } }) => setEditPerRun(Number(e.target.value)),
+              style: { ...inputStyle, flex: '1 1 120px' }
+            }),
+            h('input', {
+              type: 'number',
+              min: 0,
+              step: 10_000,
+              value: editPerBot,
+              placeholder: '单人预算',
+              onChange: (e: { target: { value: string } }) => setEditPerBot(Number(e.target.value)),
+              style: { ...inputStyle, flex: '1 1 120px' }
+            }),
+            h('input', {
+              type: 'number',
+              min: 0,
+              step: 10_000,
+              value: editPerRoom,
+              placeholder: '房间预算',
+              onChange: (e: { target: { value: string } }) => setEditPerRoom(Number(e.target.value)),
+              style: { ...inputStyle, flex: '1 1 120px' }
+            })
+          ),
+          h(
+            'div',
+            { style: { fontSize: 11, color: MUTED, lineHeight: 1.6 } },
+            '预算单位 token，0 表示不限制。到线后 Bot 不再开跑；调高后下一轮生效。'
+          ),
+          h(
+            'div',
             { style: { fontSize: 11, color: MUTED, lineHeight: 1.6 } },
             '想让它机器判定，就写成 file:路径 或 cmd:命令；其余交给模型判。'
           ),
@@ -1551,7 +1639,13 @@ function RoomDetail(props: {
                     name: editName.trim(),
                     goal: editGoal.trim(),
                     acceptance,
-                    workspaceDir: editWorkspace.trim()
+                    workspaceDir: editWorkspace.trim(),
+                    mode: editMode,
+                    budget: {
+                      perRun: Math.max(0, Math.round(editPerRun)),
+                      perBot: Math.max(0, Math.round(editPerBot)),
+                      perRoom: Math.max(0, Math.round(editPerRoom))
+                    }
                   })
                   setEditing(false)
                 },
@@ -1898,6 +1992,8 @@ export function RoomsPage() {
   const [sending, setSending] = useState(false)
   const [delivering, setDelivering] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  // SSE 每 1.2 秒推一次房间快照；只有房间真的变了才去拉消息，空闲时别反复读
+  const sseState = useRef<{ updatedAt?: string; status?: string }>({})
 
 
   const refreshBots = useCallback(async () => {
@@ -1978,6 +2074,7 @@ export function RoomsPage() {
   // 房间状态走 SSE：一条长连接，服务端有变化就推
   useEffect(() => {
     if (selectedId === null || typeof EventSource === 'undefined') return
+    sseState.current = {}
     let source: EventSource | undefined
     try {
       source = new EventSource(`dshbot/api/rooms/${selectedId}/events`)
@@ -1986,8 +2083,14 @@ export function RoomsPage() {
           const room = JSON.parse(event.data) as Room
           if (room?.id === undefined) return
           setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
-          // 跑完了就把新消息补上（只取最近一页，不把整段历史拉回来）
-          if (room.status !== 'working') {
+
+          // 只有「房间变了」或「刚从 working 落回空闲」才补消息；
+          // 空闲时服务端仍每 1.2s 推同一份快照，不能每次都拉 80 条。
+          const previous = sseState.current
+          sseState.current = { updatedAt: room.updatedAt, status: room.status }
+          const becameIdle = previous.status === 'working' && room.status !== 'working'
+          const changed = previous.updatedAt !== room.updatedAt
+          if (room.status !== 'working' && (changed || becameIdle)) {
             void listMessagePage(selectedId, { limit: 80 })
               .then((page) => {
                 setMessages((current) => mergeMessages(current, page.messages))
@@ -2178,14 +2281,19 @@ export function RoomsPage() {
 
   // 改房间
   const editRoom = useCallback(
-    async (input: { name: string; goal: string; acceptance: string[]; workspaceDir: string }) => {
+    async (input: {
+      name: string
+      goal: string
+      acceptance: string[]
+      workspaceDir: string
+      mode: 'confirm' | 'auto'
+      budget: { perRun: number; perBot: number; perRoom: number }
+    }) => {
       if (selectedId === null) return
       try {
         // 留空表示不动工作目录（不能把它改成空，那会让 Bot 无处落文件）
-        const patch =
-          input.workspaceDir === ''
-            ? { name: input.name, goal: input.goal, acceptance: input.acceptance }
-            : input
+        const { workspaceDir, ...rest } = input
+        const patch = workspaceDir === '' ? rest : input
         const room = await updateRoom(selectedId, patch)
         setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
         setSendError(null)
@@ -2463,6 +2571,8 @@ export function RoomsPage() {
                     goal: string
                     acceptance: string[]
                     workspaceDir: string
+                    mode: 'confirm' | 'auto'
+                    budget: { perRun: number; perBot: number; perRoom: number }
                   }) => void editRoom(input),
                   onDelete: () => void removeRoom(),
                   onClone: () => void duplicateRoom(),

@@ -13,7 +13,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { acceptanceWarning, auditRecords, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
-import type { BotDefinition, Member, Room, TeamTemplate } from '@dshbot/core'
+import type { BotDefinition, Budget, Member, Room, TeamTemplate } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
 import type { Database } from './store.js'
@@ -450,6 +450,8 @@ export function createHandler(ctx: AgentContext) {
             goal?: unknown
             acceptance?: unknown
             workspaceDir?: unknown
+            budget?: unknown
+            mode?: unknown
           }
           const db = loadDb()
           const target = db.rooms.find((r) => r.id === roomId)
@@ -497,6 +499,34 @@ export function createHandler(ctx: AgentContext) {
               return
             }
             target.workspaceDir = bound
+          }
+
+          // 预算：允许改单项；0 表示不限制（与 core 的语义一致）
+          if (input.budget !== undefined) {
+            if (input.budget === null || typeof input.budget !== 'object' || Array.isArray(input.budget)) {
+              send(res, 400, { error: 'budget 必须是对象' })
+              return
+            }
+            const raw = input.budget as Record<string, unknown>
+            const next: Budget = { ...target.budget }
+            for (const key of ['perRun', 'perBot', 'perRoom'] as const) {
+              if (raw[key] === undefined) continue
+              const value = Number(raw[key])
+              if (!Number.isFinite(value) || value < 0) {
+                send(res, 400, { error: `budget.${key} 必须是非负数` })
+                return
+              }
+              next[key] = Math.round(value)
+            }
+            target.budget = next
+          }
+
+          if (input.mode !== undefined) {
+            if (input.mode !== 'confirm' && input.mode !== 'auto') {
+              send(res, 400, { error: "mode 只能是 confirm 或 auto" })
+              return
+            }
+            target.mode = input.mode
           }
 
           target.updatedAt = nowIso()

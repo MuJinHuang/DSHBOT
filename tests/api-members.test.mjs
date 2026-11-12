@@ -188,6 +188,39 @@ test('E2 建房：全是文字验收返回 warning，不是错误', async () => 
   assert.equal(machine.data.warning, undefined)
 })
 
+test('房间设置：预算与执行模式可改，非法值拒绝', async () => {
+  const room = await newRoom()
+  const patched = await api.api(`rooms/${room.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ budget: { perRun: 123_456 }, mode: 'auto' })
+  })
+  assert.equal(patched.status, 200, patched.text)
+  assert.equal(patched.data.room.budget.perRun, 123_456)
+  // 没传的两项保持不变
+  assert.equal(patched.data.room.budget.perBot, room.budget.perBot)
+  assert.equal(patched.data.room.budget.perRoom, room.budget.perRoom)
+  assert.equal(patched.data.room.mode, 'auto')
+
+  const badBudget = await api.api(`rooms/${room.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ budget: { perRun: -1 } })
+  })
+  assert.equal(badBudget.status, 400)
+
+  const badMode = await api.api(`rooms/${room.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ mode: 'sometimes' })
+  })
+  assert.equal(badMode.status, 400)
+
+  const createdAuto = await api.api('rooms', {
+    method: 'POST',
+    body: JSON.stringify({ name: '自动房', goal: 'g', acceptance: ['file:x.md'], mode: 'auto' })
+  })
+  assert.equal(createdAuto.status, 201)
+  assert.equal(createdAuto.data.room.mode, 'auto')
+})
+
 test('A3 部分批准：只跑选中的，其余卡片标 skipped', async () => {
   const roomId = 'room_plan_partial'
   seedDb(dataDir, {

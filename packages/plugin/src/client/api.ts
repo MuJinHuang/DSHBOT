@@ -18,6 +18,8 @@ export interface NewRoomInput {
   workspaceDir?: string
   /** 可选：从团队模板一键拉人。 */
   teamId?: string
+  /** 可选：confirm（默认，先批准）/ auto（直接开跑）。 */
+  mode?: 'confirm' | 'auto'
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -189,7 +191,14 @@ export async function stop(roomId: string): Promise<{ stopped: boolean }> {
 /** 改房间（名称 / 目标 / 验收）。 */
 export async function updateRoom(
   roomId: string,
-  input: { name?: string; goal?: string; acceptance?: string[]; workspaceDir?: string }
+  input: {
+    name?: string
+    goal?: string
+    acceptance?: string[]
+    workspaceDir?: string
+    budget?: { perRun?: number; perBot?: number; perRoom?: number }
+    mode?: 'confirm' | 'auto'
+  }
 ): Promise<Room> {
   const data = await request<{ room: Room }>(`rooms/${roomId}`, {
     method: 'PATCH',

@@ -37,6 +37,11 @@ function sh(command) {
   execSync(command, { stdio: 'inherit', cwd: root })
 }
 
+/** 读 JSON 时容忍 BOM——PowerShell 写的文件经常带。 */
+function readJson(file) {
+  return JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))
+}
+
 function findDshCli() {
   if (process.env.DSHBOT_DSH_CLI) return process.env.DSHBOT_DSH_CLI
   const bundled = 'D:\\应用\\其他应用\\DeepSeek_Harness\\resources\\runtime\\cli\\bin\\dsh.cmd'
@@ -68,7 +73,7 @@ if (!existsSync(profileDir)) {
 // link: 是真软链，重建即生效。
 step(`链接到 profile: ${profile}`)
 const manifestPath = join(profileDir, 'package.json')
-const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+let manifest = readJson(manifestPath)
 manifest.dependencies ??= {}
 
 const currentSpec = manifest.dependencies[PACKAGE_NAME]
@@ -78,29 +83,78 @@ if (typeof currentSpec === 'string' && currentSpec.startsWith('link:')) {
   const dsh = findDshCli()
   const spec = packageDir.replaceAll('\\', '/')
   sh(`"${dsh}" plugin --profile ${profile} add "link:${spec}"`)
+  // pnpm 会重写 package.json（依赖和 bundle 层），必须重新读，不能拿旧对象覆盖
+  manifest = readJson(manifestPath)
 }
 
-// ---- 4. 补丁层 ----
-step('补丁层')
+// ---- 4. Loader 层：优先用 bundle 声明，不再手写补丁 ----
+const pluginManifest = readJson(join(packageDir, 'package.json'))
+const hasBundle = pluginManifest.dsh?.bundle !== undefined
 const patchPath = join(profileDir, 'cordis.patch.yml')
 const original = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
 
-if (original.includes(MARK_START)) {
-  console.log('  已存在 dshbot 托管段，跳过')
-} else if (new RegExp(`^\\s*-\\s*id:\\s*${ENTRY_ID}\\s*$`, 'm').test(original)) {
-  // 已经有人手工插过同名条目。再写一段会出现重复 id，Loader 会报错。
-  console.log(`  ⚠ 补丁层里已有裸的 id: ${ENTRY_ID}，未写入托管段`)
-  console.log('    请手工删掉那段，或把它的 id 改成别的，再重跑本脚本')
-} else {
-  if (original.length > 0) {
-    const backup = `${patchPath}.bak-${Date.now()}`
-    copyFileSync(patchPath, backup)
-    console.log(`  已备份原补丁层 → ${backup}`)
+/**
+ * 把旧版托管段从 profile 补丁层里摘掉。
+ *
+ * 以前没有 dsh.bundle，只能手工写 insert；现在 bundle 会自动插入同一行。
+ * 两边都留会变成重复 id，Loader 会报错，所以升级时必须清理。
+ */
+function stripManagedBlock(text) {
+  if (!text.includes(MARK_START)) return text
+  const backup = `${patchPath}.bak-${Date.now()}`
+  copyFileSync(patchPath, backup)
+  console.log(`  已备份原补丁层 → ${backup}`)
+  const next = text
+    .replace(new RegExp(`${MARK_START}[\\s\\S]*?${MARK_END}[ \\t]*\\r?\\n?`), '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s+$/, '')
+  const hasEntry = next
+    .split('\n')
+    .some((line) => line.trim() !== '' && !line.trim().startsWith('#'))
+  const final = (next === '' ? '' : `${next}\n`) + (hasEntry ? '' : '[]\n')
+  writeFileSync(patchPath, final, 'utf8')
+  console.log('  已移除旧版托管段（改由 bundle 自动注册）')
+  return final
+}
+
+if (hasBundle) {
+  step('bundle 层')
+  const bundles = manifest.dsh?.profile?.bundles
+  const list = Array.isArray(bundles) ? bundles : []
+  if (list.includes(PACKAGE_NAME)) {
+    console.log(`  已在 profile layers 里: ${PACKAGE_NAME}`)
+  } else {
+    manifest.dsh = {
+      ...(manifest.dsh ?? {}),
+      profile: { ...(manifest.dsh?.profile ?? {}), bundles: [...list, PACKAGE_NAME] }
+    }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    console.log(`  已加入 profile layers: ${PACKAGE_NAME}`)
   }
-  const head = original.replace(/\s*$/, '')
-  const next = (head.length > 0 ? `${head}\n\n` : '') + BLOCK
-  writeFileSync(patchPath, next, 'utf8')
-  console.log('  已写入托管段')
+
+  if (original.includes(MARK_START)) {
+    step('清理旧补丁')
+    stripManagedBlock(original)
+  }
+} else if (existsSync(patchPath) || original === '') {
+  step('补丁层')
+  if (original.includes(MARK_START)) {
+    console.log('  已存在 dshbot 托管段，跳过')
+  } else if (new RegExp(`^\\s*-\\s*id:\\s*${ENTRY_ID}\\s*$`, 'm').test(original)) {
+    // 已经有人手工插过同名条目。再写一段会出现重复 id，Loader 会报错。
+    console.log(`  ⚠ 补丁层里已有裸的 id: ${ENTRY_ID}，未写入托管段`)
+    console.log('    请手工删掉那段，或把它的 id 改成别的，再重跑本脚本')
+  } else {
+    if (original.length > 0) {
+      const backup = `${patchPath}.bak-${Date.now()}`
+      copyFileSync(patchPath, backup)
+      console.log(`  已备份原补丁层 → ${backup}`)
+    }
+    const head = original.replace(/\s*$/, '')
+    const next = (head.length > 0 ? `${head}\n\n` : '') + BLOCK
+    writeFileSync(patchPath, next, 'utf8')
+    console.log('  已写入托管段')
+  }
 }
 
 // ---- 5. 结果 ----
@@ -109,3 +163,4 @@ console.log(`  profile : ${profile}`)
 console.log(`  包      : ${PACKAGE_NAME} → ${packageDir}`)
 console.log(`  补丁    : ${patchPath}`)
 console.log('\n  重启 DSH 后生效（Loader 条目只在启动时组合）。')
+
