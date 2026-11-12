@@ -101,6 +101,8 @@ export interface Member {
 
 /** 计划里的一件活。 */
 export interface PlanItem {
+  /** 单件活的稳定 id：部分批准时用它点名。老数据没有，按顺序兜底。 */
+  id?: string
   botId: string
   name: string
   task: string

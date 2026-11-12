@@ -102,6 +102,34 @@ export async function addMember(
   })
 }
 
+/** 改房间里的一只 Bot（不碰库里的角色卡）。 */
+export async function updateMember(
+  roomId: string,
+  botId: string,
+  input: {
+    name?: string
+    role?: 'host' | 'worker'
+    avatar?: string
+    persona?: string
+    expertise?: string
+    instructions?: string
+    agentPreset?: string
+  }
+): Promise<{ member: Member; room: Room }> {
+  return request<{ member: Member; room: Room }>(`rooms/${roomId}/members/${botId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  })
+}
+
+/** 把一只 Bot 移出房间。 */
+export async function removeMember(roomId: string, botId: string): Promise<Room> {
+  const data = await request<{ room: Room }>(`rooms/${roomId}/members/${botId}`, {
+    method: 'DELETE'
+  })
+  return data.room
+}
+
 /** 跑一次验收，拿交付结论。 */
 export async function deliver(roomId: string): Promise<Delivery> {
   const data = await request<{ delivery: Delivery }>(`rooms/${roomId}/deliver`, {
@@ -218,14 +246,15 @@ export async function fetchDiff(
   )
 }
 
-/** 批准或否决待确认的计划。 */
+/** 批准、部分批准或否决待确认的计划。 */
 export async function decidePlan(
   roomId: string,
-  action: 'approve' | 'reject'
-): Promise<{ messages: Message[] }> {
-  return request<{ messages: Message[] }>(`rooms/${roomId}/plan`, {
+  action: 'approve' | 'reject',
+  itemIds?: string[]
+): Promise<{ messages: Message[]; room?: Room }> {
+  return request<{ messages: Message[]; room?: Room }>(`rooms/${roomId}/plan`, {
     method: 'POST',
-    body: JSON.stringify({ action })
+    body: JSON.stringify({ action, ...(itemIds === undefined ? {} : { itemIds }) })
   })
 }
 

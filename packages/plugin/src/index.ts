@@ -9,6 +9,10 @@ import type { AgentContext } from './host/agent.js'
 import type { HostContext } from './host/types.js'
 import { healInterruptedRuns } from './host/turn.js'
 
+// 给测试与脚本用：把 HTTP 入口暴露出来，就能在不起 DSH 的情况下跑整条 API。
+export { API_PREFIX, createHandler } from './host/api.js'
+export { buildContext } from './host/turn.js'
+
 /** Cordis 插件名。 */
 export const name = 'dshbot'
 

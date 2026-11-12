@@ -114,6 +114,31 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 
 ---
 
+## N1 演进（v0.2）
+
+> 详细说明见 [下一阶段任务.md](下一阶段任务.md)。状态列以代码为准，改完立刻回来改。
+
+| ID | 任务 | 验收 | 状态 |
+|---|---|---|---|
+| N1-A1 | 成员编辑 | `PATCH /rooms/:id/members/:botId` 改 name/role/persona/expertise/instructions/agentPreset | ✅ 房间内「改」按钮；重名 409 |
+| N1-A2 | 成员移除 | `DELETE /rooms/:id/members/:botId`，移除后 @ 不到 | ✅ 二次确认；@ 旧名字只回提示 |
+| N1-A3 | 计划部分批准 | `POST /plan {action:'approve', itemIds:[...]}`，未选中卡片 `skipped` | ✅ 勾选后按件执行 |
+| N1-B1 | 文件浏览接口 | `GET /rooms/:id/files` 列工作区文件（名称/大小/时间，排除 .git） | ⬜ |
+| N1-B2 | 文件预览 | `GET /rooms/:id/file?path=` 返回文本；二进制/超大拒绝 | ⬜ |
+| N1-B3 | 交付页文件 tab | 交付面板加「文件」tab，Markdown 用 `parseBlocks` 渲染 | ⬜ |
+| N1-C1 | Bot 卡导出/导入 | `GET /bots/:id/export`；`POST /bots/import` | ⬜ |
+| N1-C2 | 团队模板 | `POST /bots/teams`；建房时一键拉入 | ⬜ |
+| N1-C3 | 房间模板 | `POST /rooms/:id/clone` 复制目标/验收/成员（不带消息） | ⬜ |
+| N1-D1 | 消息分页 | `GET /messages?limit=&before=`；界面滚到顶加载更多 | ⬜ |
+| N1-D2 | 数据分片 | 消息按房间分文件，`rooms.json` 只存房间 | ⬜ |
+| N1-D3 | 审计界面 | 房间页「审计」tab：按类型筛选、看单条工具调用 | ⬜ |
+| N1-E1 | 回归脚本 | `pnpm drill`：自动建房、跑任务、断言验收通过 | ⬜ |
+| N1-E2 | 谓词覆盖检查 | 验收全是文本类时返回 warning（不是错误） | ⬜ |
+| N1-E3 | 数字自检提示 | 总管/执行者提示词要求给算式与复算结果 | ⬜ |
+| N1-E4 | CI 扩展 | `pnpm check` 里带一次 drill（mock） | ⬜ |
+
+---
+
 ## M4 技能与例行（约 3 人日，MVP 之后）
 
 | ID | 任务 | 验收 | 依赖 | 估时 | 状态 |

@@ -940,7 +940,8 @@ export async function handleRoomMessage(
         // 派活前先把任务卡都立起来，状态 running；同时做软写锁的声明
         const plans = receivers.map((receiver) => ({
           receiver,
-          task: taskFor(reply, receiver.name)
+          task: taskFor(reply, receiver.name),
+          itemId: newId('item')
         }))
         const needsConfirm = fresh.mode === 'confirm'
         const planId = newId('plan')
@@ -985,6 +986,7 @@ export async function handleRoomMessage(
             botId: plan.receiver.botId,
             status: needsConfirm ? 'pending' : 'running',
             planId,
+            itemId: plan.itemId,
             ...(seat?.files === undefined ? {} : { files: seat.files })
           }
           card.botId = plan.receiver.botId
@@ -1001,6 +1003,7 @@ export async function handleRoomMessage(
               hostName: target.name,
               at: nowIso(),
               items: plans.map((plan) => ({
+                id: plan.itemId,
                 botId: plan.receiver.botId,
                 name: plan.receiver.name,
                 task: plan.task,
@@ -1034,7 +1037,8 @@ export async function handleRoomMessage(
           plans.map((plan) => ({
             botId: plan.receiver.botId,
             name: plan.receiver.name,
-            task: plan.task
+            task: plan.task,
+            itemId: plan.itemId
           }))
         )
         produced.push(...results)
@@ -1076,7 +1080,7 @@ export async function runPlan(
   roomId: string,
   hostBotId: string,
   hostName: string,
-  items: { botId: string; name: string; task: string }[]
+  items: { botId: string; name: string; task: string; itemId?: string }[]
 ): Promise<Message[]> {
   const produced: Message[] = []
   const room = loadDb().rooms.find((r) => r.id === roomId)
@@ -1091,7 +1095,8 @@ export async function runPlan(
         status: 'idle' as const,
         tokensUsed: 0
       },
-      task: item.task
+      task: item.task,
+      ...(item.itemId === undefined ? {} : { itemId: item.itemId })
     }
   })
 
@@ -1118,6 +1123,7 @@ export async function runPlan(
       to: plan.receiver.name,
       botId: plan.receiver.botId,
       status: sub.outcome === undefined ? 'failed' : 'done',
+      ...(plan.itemId === undefined ? {} : { itemId: plan.itemId }),
       // Handoff：把执行者的结论摘要挂在卡上，下游不用翻消息流
       ...(summary === '' ? {} : { result: summary })
     }

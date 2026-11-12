@@ -414,8 +414,27 @@ function AssignmentRow(props: { message: Message }) {
   }
   const status = payload.status ?? 'running'
   const label =
-    status === 'done' ? '完成' : status === 'failed' ? '失败' : status === 'running' ? '进行中' : status
-  const color = status === 'done' ? '#2f9e44' : status === 'failed' ? '#e5484d' : '#2f6fed'
+    status === 'done'
+      ? '完成'
+      : status === 'failed'
+        ? '失败'
+        : status === 'skipped'
+          ? '已跳过'
+          : status === 'rejected'
+            ? '已否决'
+            : status === 'pending'
+              ? '待确认'
+              : status === 'running'
+                ? '进行中'
+                : status
+  const color =
+    status === 'done'
+      ? '#2f9e44'
+      : status === 'failed'
+        ? '#e5484d'
+        : status === 'skipped' || status === 'rejected' || status === 'pending'
+          ? MUTED
+          : '#2f6fed'
 
   return h(
     'div',
@@ -817,13 +836,42 @@ function VersionsPanel(props: {
   )
 }
 
-/** 待确认的计划：批准才开跑。 */
+/** 待确认的计划：可以全批，也可以只批几件。 */
 function PlanBanner(props: {
   plan: NonNullable<Room['pendingPlan']>
   busy: boolean
-  onDecide: (action: 'approve' | 'reject') => void
+  onDecide: (action: 'approve' | 'reject', itemIds?: string[]) => void
 }) {
   const { plan } = props
+  const selectable = plan.items.every((item) => item.id !== undefined)
+  const keyOf = (item: NonNullable<Room['pendingPlan']>['items'][number], index: number): string =>
+    item.id ?? `legacy-${index}`
+  const allKeys = plan.items.map((item, index) => keyOf(item, index))
+  const [picked, setPicked] = useState<string[]>(allKeys)
+
+  useEffect(() => {
+    setPicked(plan.items.map((item, index) => keyOf(item, index)))
+  }, [plan.id])
+
+  const toggle = (key: string): void => {
+    setPicked((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+    )
+  }
+
+  const approve = (): void => {
+    if (!selectable) {
+      props.onDecide('approve')
+      return
+    }
+    const ids = plan.items
+      .filter((item, index) => item.id !== undefined && picked.includes(keyOf(item, index)))
+      .map((item) => item.id as string)
+    props.onDecide('approve', ids)
+  }
+
+  const pickedCount = selectable ? picked.length : plan.items.length
+
   return h(
     'div',
     {
@@ -841,12 +889,13 @@ function PlanBanner(props: {
       { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
       h('span', { style: { fontWeight: 600 } }, '计划待确认'),
       h('span', { style: { color: MUTED, fontSize: 11 } }, `${plan.hostName} 想去派 ${plan.items.length} 件事`),
+      selectable ? h('span', { style: { color: MUTED, fontSize: 11 } }, `已选 ${pickedCount} 件`) : null,
       h('div', { style: { flex: 1 } }),
       h(
         'button',
         {
-          onClick: () => props.onDecide('approve'),
-          disabled: props.busy,
+          onClick: approve,
+          disabled: props.busy || pickedCount === 0,
           style: {
             padding: '4px 12px',
             borderRadius: 6,
@@ -855,11 +904,15 @@ function PlanBanner(props: {
             color: '#fff',
             fontSize: 11.5,
             fontFamily: 'inherit',
-            cursor: props.busy ? 'default' : 'pointer',
-            opacity: props.busy ? 0.6 : 1
+            cursor: props.busy || pickedCount === 0 ? 'default' : 'pointer',
+            opacity: props.busy || pickedCount === 0 ? 0.6 : 1
           }
         },
-        props.busy ? '执行中…' : '批准执行'
+        props.busy
+          ? '执行中…'
+          : pickedCount < plan.items.length
+            ? `批准选中 ${pickedCount} 件`
+            : '批准执行'
       ),
       h(
         'button',
@@ -884,9 +937,20 @@ function PlanBanner(props: {
     ...plan.items.map((item, index) =>
       h(
         'div',
-        { key: index, style: { display: 'flex', gap: 6, marginBottom: 3, lineHeight: 1.5 } },
+        {
+          key: keyOf(item, index),
+          style: { display: 'flex', gap: 6, marginBottom: 3, lineHeight: 1.5, alignItems: 'flex-start' }
+        },
+        selectable
+          ? h('input', {
+              type: 'checkbox',
+              checked: picked.includes(keyOf(item, index)),
+              onChange: () => toggle(keyOf(item, index)),
+              style: { marginTop: 3 }
+            })
+          : null,
         h('span', { style: { color: MUTED, flexShrink: 0 } }, `${item.name}：`),
-        h('span', {}, item.task)
+        h('span', { style: { opacity: selectable && !picked.includes(keyOf(item, index)) ? 0.5 : 1 } }, item.task)
       )
     )
   )
@@ -910,7 +974,7 @@ function RoomDetail(props: {
   onExportAudit: () => void
   versions: VersionEntry[]
   onRollback: (hash: string) => void
-  onDecidePlan: (action: 'approve' | 'reject') => void
+  onDecidePlan: (action: 'approve' | 'reject', itemIds?: string[]) => void
   planBusy: boolean
 }) {
   const { room, messages, sending, error } = props
@@ -1595,12 +1659,12 @@ export function RoomsPage() {
   // 批准 / 否决计划
   const [planBusy, setPlanBusy] = useState(false)
   const decidePlanHandler = useCallback(
-    async (action: 'approve' | 'reject') => {
+    async (action: 'approve' | 'reject', itemIds?: string[]) => {
       if (selectedId === null) return
       setPlanBusy(true)
       setSendError(null)
       try {
-        const result = await decidePlan(selectedId, action)
+        const result = await decidePlan(selectedId, action, itemIds)
         setMessages(await listMessages(selectedId))
         const list = await listRooms()
         setRooms(list)
@@ -1888,7 +1952,8 @@ export function RoomsPage() {
                   onExportAudit: () => void exportAudit(),
                   versions,
                   onRollback: (hash: string) => void doRollback(hash),
-                  onDecidePlan: (action: 'approve' | 'reject') => void decidePlanHandler(action),
+                  onDecidePlan: (action: 'approve' | 'reject', itemIds?: string[]) =>
+                    void decidePlanHandler(action, itemIds),
                   planBusy
                 })
               : h(

@@ -493,6 +493,67 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
+      // ---- /rooms/:id/members/:botId（改 / 移除）----
+      if (
+        parts.length === 4 &&
+        parts[2] === 'members' &&
+        (method === 'PATCH' || method === 'DELETE')
+      ) {
+        const botId = parts[3] ?? ''
+        const db = loadDb()
+        const target = db.rooms.find((r) => r.id === roomId)
+        const member = (target?.members ?? []).find((m) => m.botId === botId)
+        if (target === undefined || member === undefined) {
+          send(res, 404, { error: `房间里没有这只 Bot：${botId}` })
+          return
+        }
+
+        if (method === 'DELETE') {
+          target.members = (target.members ?? []).filter((m) => m.botId !== botId)
+          if (target.hostBotId === botId) delete target.hostBotId
+          target.updatedAt = nowIso()
+          saveDb(db)
+          send(res, 200, { deleted: true, room: target })
+          return
+        }
+
+        const input = (await readJson(req)) as Record<string, unknown>
+        if (input.name !== undefined) {
+          if (!isNonEmptyString(input.name)) {
+            send(res, 400, { error: 'name 不能为空' })
+            return
+          }
+          const name = input.name.trim()
+          const taken = (target.members ?? []).some((m) => m.botId !== botId && m.name === name)
+          if (taken) {
+            send(res, 409, { error: `房间里已经有「${name}」了` })
+            return
+          }
+          member.name = name
+        }
+        if (input.role !== undefined) {
+          if (input.role !== 'host' && input.role !== 'worker') {
+            send(res, 400, { error: "role 只能是 host 或 worker" })
+            return
+          }
+          member.role = input.role
+          if (input.role === 'host') target.hostBotId = member.botId
+          else if (target.hostBotId === member.botId) delete target.hostBotId
+        }
+        if (input.avatar !== undefined) {
+          member.avatar = isNonEmptyString(input.avatar) ? input.avatar.trim() : '🤖'
+        }
+        for (const key of ['persona', 'expertise', 'instructions', 'agentPreset'] as const) {
+          if (isNonEmptyString(input[key])) member[key] = input[key].trim()
+          else if (input[key] === '') delete member[key]
+        }
+
+        target.updatedAt = nowIso()
+        saveDb(db)
+        send(res, 200, { member, room: target })
+        return
+      }
+
       // ---- /rooms/:id/state（暂停 / 恢复 / 归档 / 仅@响应）----
       if (parts.length === 3 && parts[2] === 'state' && method === 'POST') {
         const input = (await readJson(req)) as { action?: unknown }
@@ -615,9 +676,9 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
-      // ---- /rooms/:id/plan（批准 / 否决待确认计划）----
+      // ---- /rooms/:id/plan（批准 / 部分批准 / 否决待确认计划）----
       if (parts.length === 3 && parts[2] === 'plan' && method === 'POST') {
-        const input = (await readJson(req)) as { action?: unknown }
+        const input = (await readJson(req)) as { action?: unknown; itemIds?: unknown }
         const action = String(input.action ?? '')
         const db = loadDb()
         const target = db.rooms.find((r) => r.id === roomId)
@@ -631,18 +692,18 @@ export function createHandler(ctx: AgentContext) {
           return
         }
 
-        // 计划里的任务卡状态随之变化
-        const markCards = (status: string): void => {
+        // 计划里的任务卡状态随之变化：选中的 running，没选的 skipped
+        const markCards = (statusOf: (payload: Record<string, unknown>) => string): void => {
           for (const message of db.messages) {
-            const payload = message.payload as { planId?: unknown; status?: unknown } | undefined
+            const payload = message.payload as Record<string, unknown> | undefined
             if (message.roomId === roomId && payload?.planId === plan.id) {
-              payload.status = status
+              payload.status = statusOf(payload)
             }
           }
         }
 
         if (action === 'reject') {
-          markCards('rejected')
+          markCards(() => 'rejected')
           target.pendingPlan = undefined
           target.status = 'created'
           target.updatedAt = nowIso()
@@ -654,22 +715,78 @@ export function createHandler(ctx: AgentContext) {
         }
 
         if (action === 'approve') {
-          markCards('running')
+          // 部分批准：itemIds 缺省 = 全批；给了就只跑这几件
+          const requested =
+            input.itemIds === undefined
+              ? undefined
+              : Array.isArray(input.itemIds)
+                ? input.itemIds.filter(isNonEmptyString)
+                : null
+          if (requested === null) {
+            send(res, 400, { error: 'itemIds 必须是字符串数组' })
+            return
+          }
+          if (requested !== undefined && requested.length === 0) {
+            send(res, 400, { error: '至少要选一件事；都不想做就点「否决」' })
+            return
+          }
+
+          const wanted = requested === undefined ? undefined : new Set(requested)
+          const selected = plan.items.filter((item) =>
+            wanted === undefined ? true : item.id !== undefined && wanted.has(item.id)
+          )
+          if (wanted !== undefined) {
+            const known = new Set(
+              plan.items.map((item) => item.id).filter((id): id is string => id !== undefined)
+            )
+            const unknown = [...wanted].filter((id) => !known.has(id))
+            if (unknown.length > 0) {
+              send(res, 400, { error: `计划里没有这些事：${unknown.join('、')}` })
+              return
+            }
+            if (selected.length === 0) {
+              send(res, 400, { error: '这个计划是老版本生成的，没有单件 id，只能全部批准' })
+              return
+            }
+          }
+
+          const chosen = new Set(
+            selected.map((item) => item.id).filter((id): id is string => id !== undefined)
+          )
+          markCards((payload) => {
+            if (wanted === undefined) return 'running'
+            const itemId = typeof payload.itemId === 'string' ? payload.itemId : undefined
+            return itemId !== undefined && chosen.has(itemId) ? 'running' : 'skipped'
+          })
           target.pendingPlan = undefined
           target.status = 'working'
           target.updatedAt = nowIso()
+
+          const skippedCount = plan.items.length - selected.length
           // 批准这件事必须进消息流：否则执行者读到的还是"计划已生成，等待确认"
           db.messages.push(
             makeMessage(
               roomId,
               'system',
               'system',
-              `计划已批准：${plan.items.length} 件事开始执行。`
+              `计划已批准：${selected.length} 件事开始执行` +
+                (skippedCount > 0 ? `，${skippedCount} 件先跳过（任务卡标为 skipped）。` : '。')
             )
           )
           saveDb(db)
 
-          const produced = await runPlan(ctx, roomId, plan.hostBotId, plan.hostName, plan.items)
+          const produced = await runPlan(
+            ctx,
+            roomId,
+            plan.hostBotId,
+            plan.hostName,
+            selected.map((item) => ({
+              botId: item.botId,
+              name: item.name,
+              task: item.task,
+              ...(item.id === undefined ? {} : { itemId: item.id })
+            }))
+          )
 
           const after = loadDb()
           const fresh = after.rooms.find((r) => r.id === roomId)
@@ -678,7 +795,7 @@ export function createHandler(ctx: AgentContext) {
             fresh.updatedAt = nowIso()
             saveDb(after)
           }
-          send(res, 200, { ok: true, messages: produced })
+          send(res, 200, { ok: true, messages: produced, room: fresh })
           return
         }
 

@@ -13,9 +13,11 @@ import {
   deleteBot,
   listBots,
   listPresets,
+  removeMember,
   saveBot,
   splitBotText,
-  updateBot
+  updateBot,
+  updateMember
 } from './api'
 import type { BotCard, PresetEntry } from './api'
 
@@ -390,10 +392,172 @@ export function BotLibraryView(props: {
   )
 }
 
+/**
+ * 房间内改一只 Bot：只改这个房间的成员副本，不碰库里的角色卡。
+ *
+ * 以前拉错人只能重建房间——这里补上「改」。
+ */
+function MemberEditor(props: {
+  roomId: string
+  member: Member
+  onSaved: (room: Room) => void
+  onCancel: () => void
+}) {
+  const { member } = props
+  const [name, setName] = useState(member.name)
+  const [avatar, setAvatar] = useState(member.avatar)
+  const [role, setRole] = useState<'host' | 'worker'>(member.role)
+  const [persona, setPersona] = useState(member.persona ?? '')
+  const [expertise, setExpertise] = useState(member.expertise ?? '')
+  const [instructions, setInstructions] = useState(member.instructions ?? '')
+  const [preset, setPreset] = useState(member.agentPreset ?? '')
+  const [presets, setPresets] = useState<PresetEntry[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void listPresets()
+      .then(setPresets)
+      .catch(() => setPresets([]))
+  }, [])
+
+  const save = useCallback(async () => {
+    if (name.trim() === '') {
+      setError('名字不能为空')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await updateMember(props.roomId, member.botId, {
+        name: name.trim(),
+        avatar: avatar.trim() === '' ? '🤖' : avatar.trim(),
+        role,
+        persona,
+        expertise,
+        instructions,
+        agentPreset: preset
+      })
+      props.onSaved(result.room)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setBusy(false)
+    }
+  }, [name, avatar, role, persona, expertise, instructions, preset, member.botId, props])
+
+  return h(
+    'div',
+    {
+      style: {
+        border: '1px solid rgba(47,111,237,0.5)',
+        borderRadius: 8,
+        padding: 8,
+        marginBottom: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 5
+      }
+    },
+    h(
+      'div',
+      { style: { display: 'flex', gap: 4 } },
+      h('input', {
+        value: avatar,
+        onChange: (e: { target: { value: string } }) => setAvatar(e.target.value),
+        style: { ...field, width: 36, textAlign: 'center' as const }
+      }),
+      h('input', {
+        autoFocus: true,
+        value: name,
+        placeholder: '名字',
+        onChange: (e: { target: { value: string } }) => setName(e.target.value),
+        style: { ...field, flex: 1 }
+      })
+    ),
+    h(
+      'div',
+      { style: { display: 'flex', gap: 4 } },
+      h(
+        'select',
+        {
+          value: role,
+          onChange: (e: { target: { value: string } }) =>
+            setRole(e.target.value === 'host' ? 'host' : 'worker'),
+          style: { ...field, flex: 1 }
+        },
+        h('option', { value: 'worker' }, '执行'),
+        h('option', { value: 'host' }, '总管')
+      ),
+      h(
+        'select',
+        {
+          value: preset,
+          onChange: (e: { target: { value: string } }) => setPreset(e.target.value),
+          style: { ...field, flex: 2 }
+        },
+        h('option', { value: '' }, '工具集：跟随默认'),
+        ...presets.map((item) => h('option', { key: item.id, value: item.id }, item.label))
+      )
+    ),
+    h('input', {
+      value: expertise,
+      placeholder: '一句话专长',
+      onChange: (e: { target: { value: string } }) => setExpertise(e.target.value),
+      style: field
+    }),
+    h('textarea', {
+      value: persona,
+      rows: 5,
+      placeholder: '岗位描述',
+      onChange: (e: { target: { value: string } }) => setPersona(e.target.value),
+      style: { ...field, resize: 'vertical', lineHeight: 1.5 }
+    }),
+    h('textarea', {
+      value: instructions,
+      rows: 2,
+      placeholder: '输出要求',
+      onChange: (e: { target: { value: string } }) => setInstructions(e.target.value),
+      style: { ...field, resize: 'vertical' }
+    }),
+    error === null ? null : h('div', { style: { fontSize: 10.5, color: '#e5484d' } }, error),
+    h(
+      'div',
+      { style: { display: 'flex', gap: 4 } },
+      h('button', { onClick: () => void save(), disabled: busy, style: smallButton(true) }, busy ? '保存中…' : '保存'),
+      h('button', { onClick: props.onCancel, style: smallButton(false) }, '取消')
+    )
+  )
+}
+
 /** 成员卡：头像、名字、专长、状态灯、花费。 */
-export function MemberCard(props: { member: Member }) {
+export function MemberCard(props: {
+  member: Member
+  onEdit?: () => void
+  onRemove?: () => void
+  removing?: boolean
+}) {
   const { member } = props
   const dot = STATUS_COLOR[member.status] ?? '#999'
+  const action = (label: string, onClick: () => void, danger = false) =>
+    h(
+      'button',
+      {
+        onClick,
+        style: {
+          padding: '1px 5px',
+          borderRadius: 4,
+          border: LINE,
+          background: 'transparent',
+          color: danger ? '#e5484d' : MUTED,
+          fontSize: 10,
+          fontFamily: 'inherit',
+          cursor: 'pointer'
+        }
+      },
+      label
+    )
+
   return h(
     'div',
     {
@@ -416,7 +580,12 @@ export function MemberCard(props: { member: Member }) {
             { style: { fontSize: 10, color: MUTED, border: LINE, borderRadius: 3, padding: '0 3px' } },
             '总管'
           )
-        : null
+        : null,
+      h('div', { style: { flex: 1 } }),
+      props.onEdit === undefined ? null : action('改', props.onEdit),
+      props.onRemove === undefined
+        ? null
+        : action(props.removing === true ? '确认移出' : '移出', props.onRemove, true)
     ),
     member.expertise === undefined || member.expertise === ''
       ? null
@@ -446,6 +615,9 @@ export function MemberPanel(props: {
 }) {
   const [open, setOpen] = useState(false)
   const [library, setLibrary] = useState<BotCard[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const [memberError, setMemberError] = useState<string | null>(null)
   const members = props.room?.members ?? []
 
   useEffect(() => {
@@ -454,14 +626,63 @@ export function MemberPanel(props: {
       .catch(() => setLibrary([]))
   }, [open])
 
+  // 换房间时把"正在改/正在移"的状态清掉，避免改到另一个房间的人
+  useEffect(() => {
+    setEditingId(null)
+    setRemovingId(null)
+    setMemberError(null)
+  }, [props.room?.id])
+
+  const remove = (botId: string): void => {
+    if (props.room === null) return
+    if (removingId !== botId) {
+      setRemovingId(botId)
+      return
+    }
+    void removeMember(props.room.id, botId)
+      .then((room) => {
+        props.onRoomChange(room)
+        setRemovingId(null)
+        setEditingId(null)
+        setMemberError(null)
+      })
+      .catch((err: unknown) => {
+        setMemberError(err instanceof Error ? err.message : '移出失败')
+        setRemovingId(null)
+      })
+  }
+
   return h(
     'div',
     { style: { width: 220, flexShrink: 0, padding: 12, boxSizing: 'border-box', overflow: 'auto' } },
     h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 8 } }, `成员（${members.length}）`),
 
+    memberError === null
+      ? null
+      : h('div', { style: { fontSize: 10.5, color: '#e5484d', marginBottom: 6 } }, memberError),
+
     members.length === 0
       ? h('div', { style: { fontSize: 12, color: MUTED, lineHeight: 1.7 } }, '暂无 Bot')
-      : members.map((m) => h(MemberCard, { key: m.botId, member: m })),
+      : members.map((m) =>
+          editingId === m.botId && props.room !== null
+            ? h(MemberEditor, {
+                key: m.botId,
+                roomId: props.room.id,
+                member: m,
+                onSaved: (room: Room) => {
+                  props.onRoomChange(room)
+                  setEditingId(null)
+                },
+                onCancel: () => setEditingId(null)
+              })
+            : h(MemberCard, {
+                key: m.botId,
+                member: m,
+                onEdit: () => setEditingId(m.botId),
+                onRemove: () => remove(m.botId),
+                removing: removingId === m.botId
+              })
+        ),
 
     props.room === null
       ? null
