@@ -13,6 +13,9 @@
     "test": "pnpm build && node --test tests/*.test.mjs",
     "check": "pnpm typecheck && pnpm test",
     "drill": "node spike/drill.mjs",
+    "drill:ops": "pnpm build && node --test tests/api-members.test.mjs",
+    "drill:docs": "pnpm build && node --test tests/api-files.test.mjs",
+    "drill:clone": "pnpm build && node --test tests/api-reuse.test.mjs",
     "install:profile": "node scripts/install.mjs"
   },
   "devDependencies": {

@@ -51,13 +51,18 @@ git log --oneline -5  # 确认都在
 
 DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 
-- **Bot 库**：建/改/删角色卡（岗位描述、一句话专长、输出规范、工具集），支持贴一大段自动拆分；
+- **Bot 库**：建/改/删角色卡（岗位描述、一句话专长、输出规范、工具集），支持贴一大段自动拆分；可导出/导入 JSON；
+- **团队模板**：把常用的一组 Bot 存起来，建房时一键拉入；
 - **建房**：名称 + 目标 + 验收（支持 `file:` / `cmd:` 机器判定）+ 可选绑定工作目录；
-- **房间内**：从库拉人或临时建；说话后总管出计划 → 人批准 → 并行派活 → 任务卡 + 结论摘要；
-- **交付**：机器 + 模型双重验收、变更文件 diff、版本快照与回滚、导出 Markdown / 审计 JSONL；
-- **护栏**：预算熔断、运行超时可配、启动自愈、停止按钮。
+- **房间内**：从库拉人或临时建；说话后总管出计划 → 人**全批或勾选部分批准** → 并行派活 → 任务卡 + 结论摘要；
+- **成员运维**：房间内直接改名字/岗位/专长/输出/工具集，或移出；不用重建房间；
+- **交付**：机器 + 模型双重验收、变更文件 diff、**文件 tab 直接浏览/预览工作区产物**、版本快照与回滚、导出 Markdown / 审计 JSONL；
+- **审计 tab**：按类型筛选、点开看单条工具调用；
+- **规模**：消息分页（滚到顶加载更多），消息按房间存 `messages.jsonl`，`rooms.json` 只存房间；
+- **复用**：房间「另存为」复制目标/验收/成员（不带消息）；
+- **护栏**：预算熔断、运行超时可配、启动自愈、停止按钮、验收全是文字时给 warning。
 
-规模：43 次提交、22 个源文件 / 5833 行、73 个单测、`pnpm check` 一键校验。
+规模：54 次提交、23 个源文件 / 7580 行、101 个单测、`pnpm check` 一键校验。
 
 **还不能**：房间内审批卡、真写锁、逐条工具事件推流（受 DSH 接口限制，见 [下一阶段任务.md](下一阶段任务.md) 第五节）。
 
@@ -69,8 +74,8 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | M1 多 Bot | ✅（M1-5 软写锁；硬锁受限于 DSH） |
 | M2 插手与接管 | ✅（审批卡受限于 DSH） |
 | M3 交付 | ✅ |
-| 工程化 | ✅ 73 测试 · CI · 自愈 · 熔断 · 审计 |
-| 下一阶段 | ⬜ 见 [下一阶段任务.md](下一阶段任务.md) |
+| 工程化 | ✅ 101 测试 · CI · 自愈 · 熔断 · 审计 · drill |
+| 下一阶段 N1 | ✅ 五组全部完成（A 运维 / B 产物 / C 复用 / D 规模 / E 护栏），见 [TASKS.md](TASKS.md) |
 | S0–M3 明细 | 见 [TASKS.md](TASKS.md)——状态列以代码为准，改完代码立刻回去改那里 |
 
 ### 第一批改进（已完成）
@@ -200,6 +205,24 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | 依赖顺序 | ✅ | 总管提示词补一条：有先后依赖的活不要同时派，或把下游写成"上游缺失只报缺失" |
 | 文档产出 | ✅ | 主文档 7 阶段 7 道门、RACI、数值来源标注（需求/基线/标准/实测） |
 
+### 第十四批（N1 · v0.2）
+
+| 组 | 项 | 状态 | 说明 |
+|---|---|---|---|
+| A | 成员编辑 / 移除 | ✅ | `PATCH/DELETE /rooms/:id/members/:botId`；房间内「改」「移出」，不碰库 |
+| A | 计划部分批准 | ✅ | `POST /plan {itemIds}`；未选卡片 `skipped`，只跑选中的 |
+| B | 文件浏览与预览 | ✅ | `GET /files`、`GET /file?path=`；二进制 415、>200KB 413、越界 400 |
+| B | 交付页文件 tab | ✅ | 点 .md 走 Markdown 渲染，其余等宽预览 |
+| C | Bot 卡导出/导入 | ✅ | `format: dshbot.bot` v1；库页面下载/选文件导入 |
+| C | 团队模板 | ✅ | 库页面存团队；建房表单选模板，一次拉入 |
+| C | 房间另存为 | ✅ | 复制目标/验收/成员；消息/会话/花费清零 |
+| D | 消息分页 | ✅ | `limit` / `before`；界面「加载更早的消息」 |
+| D | 数据分片 | ✅ | `rooms/<id>/messages.jsonl`；旧数据按消息 id 去重迁移，rooms.json 只存房间 |
+| D | 审计界面 | ✅ | 「消息流 / 审计」tab；按类型筛、工具调用可展开 |
+| E | `pnpm drill` | ✅ | 默认假宿主 0 token；`--port` 打真实实例 |
+| E | 谓词提醒 / 数字自检 | ✅ | 全是文字验收返回 warning；提示词要求算式与复算 |
+| E | CI | ✅ | drill 以测试形式随 `pnpm check` 跑 |
+
 ## 3. 代码地图
 
 ```
@@ -208,14 +231,16 @@ packages/
   plugin/
     src/index.ts        Host 插件入口：注入 webServer/agents/sessions，挂路由
     src/host/api.ts     路由：/dshbot/api/{health,rooms,_probe}
-    src/host/store.ts   房间存储（临时文件 + rename）
+    src/host/store.ts   房间/Bot/团队存储；消息按房间写 `messages.jsonl`（含旧数据迁移）
+    src/host/files.ts   工作区文件列表与文本预览（挡二进制/超大/越界）
     src/host/agent.ts   ⚠ 进程内跑 agent 回合（M0-3 卡点在这）
     src/client/index.ts 注册 main 面板 + 侧栏入口
     src/client/page.tsx 房间页（三栏）
     src/client/api.ts   浏览器侧 fetch（文档相对路径）
   cli/             dsh-bot 骨架命令
 scripts/install.mjs  构建 → 类型检查 → link: 进 profile → 补丁层托管段
-spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档）
+tests/           101 个用例：纯函数 + 真 HTTP 处理器 + drill
+spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档、drill.mjs）
 ```
 
 ## 4. 环境事实
@@ -228,7 +253,7 @@ spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档
 | 开发 profile | `dshbot-dev`（从 web 复制，端口 54873） |
 | 安装方式 | `link:`（软链），不是 `file:`（拷贝） |
 | 补丁层 | `profiles/<name>/cordis.patch.yml` 里的 `# >>> dshbot:managed` 段 |
-| 数据 | `~/.dsh/dshbot/rooms.json` |
+| 数据 | `~/.dsh/dshbot/rooms.json`（房间 / Bot 库 / 团队）+ `rooms/<id>/messages.jsonl`（消息） |
 | 权限 | 非管理员；Node/pnpm/Git 装在 `%LOCALAPPDATA%\Programs` |
 | 网络 | GitHub 不通，用 npmmirror；npm registry 正常 |
 | PowerShell | `CurrentUser` 执行策略 = RemoteSigned |
@@ -242,24 +267,19 @@ spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档
 5. **session 事件形状**：`{ log: [{ type, seq, time, data }] }`，含 `turn/start`、`step/start`、`agent/inbox/spliced`、`turn/end`。这就是 M0-4 消息流的数据源。
 6. **agent 句柄**：`ctx.agents.create()` 返回 `{ agent, dispose }`，真句柄在 `agent` 上，有 `followup()`。
 
-## 6. 当前卡点（M0-3）
+## 6. 当前限制（不是卡点）
 
-**症状**：起 agent、投消息都成功，但回合 32ms 就结束：
+M0–M3 与 N1 都已收口。剩下这几件受宿主接口限制，**硬做只能是假的**，所以明确不做：
 
-```
-prompt variable "{{model}}" has no value for this assembly (section "deployment:persona-prefix")
-```
-
-**原因**：`agents.create({ sessionId, agentOptions: { cwd } })` 没带 Agent preset 与模型选择，系统提示词模板填不上 `{{model}}`。
-
-**两条路**：
-
-| | 做法 | 备注 |
+| 限制 | 原因 | 现在怎么办 |
 |---|---|---|
-| **A（推荐）** | 找到谁给 `agents` 挂了 `createSession`，注入那个服务 | UI 已验证的路径；`ctx.agents.createSession` 在插件里不存在，全局搜定义 0 命中 |
-| B | 自己拼 `agentOptions`：`preset` + 从 `ctx.agentDefaultModel` 读 `{ provider, model }` | 字段名靠猜，可能要试几轮 |
+| 房间内审批卡 | DSH 不暴露工具调用拦截钩子 | 依赖 DSH 自带审批；房间层只做计划确认 |
+| 真写锁 | 同上 | 软约束：任务里抽文件声明 + 冲突提醒 |
+| 逐条工具事件推流 | 需要事件总线 | 1.2s 快照 + 内存活动行，够看"正在干什么" |
+| 依赖编排（DAG） | 先靠提示词约束 | 实测再撞一次再考虑 |
 
-线索：`dsh-api-session-controller` 里 `SessionCommandController.create()` 调用 `this.agents.createSession({ sessionId, cwd, agentPreset, reusable })`——说明 `this.agents` 与插件拿到的 `ctx.agents` 不是同一个扩展层。
+历史记录：M0-3 曾经卡在 `agents.create` 不带 preset、系统提示词填不上 `{{model}}`；
+现已改走 `sessionController.agents.createSession`，见 [spike/m0-3-notes.md](spike/m0-3-notes.md)。
 
 ## 7. 恢复步骤
 
@@ -280,11 +300,16 @@ dsh plugin --profile dshbot-dev add "link:D:/Desktop/DSBOT/packages/plugin"   # 
 dsh --profile dshbot-dev --port 54873 --no-open                               # 打印带 token 的地址
 ```
 
-## 8. 下一步三件事
+## 8. 下一步
 
-1. 解决 M0-3 的 preset 问题（路线 A）；
-2. 把 agent 事件映射成房间消息（M0-4），顺手删掉 `_probe` 探针；
-3. 接 `@提及` 触发（M0-5）。
+N1 已收口（A–E 全部完成，101 个用例，真实 drill 跑通）。接下来按真实需求选，不提前造：
+
+1. **M4 技能/例行**：把一次执行存成技能、或按时间触发房间——等真有重复任务再做；
+2. **M5 浏览器画面**：要 Bot 操作网页时再做；
+3. **继续打磨**：依赖编排 DAG、审批卡（需 DSH 暴露工具钩子）、Bot 记忆（X-5）。
+
+如果继续无人值守开发：照旧在 `dshbot-dev` 实例验证，每完成一项小步提交，
+收尾 `pnpm check` + `pnpm install:profile`，等用户重启 DSH 生效。
 
 ## 9. 已知的坑
 
@@ -299,6 +324,7 @@ dsh --profile dshbot-dev --port 54873 --no-open                               # 
 | 根包 `type: module` | `.js` 脚本里的 `require` 报错 | 改用 `.cjs` |
 | 中文乱码 | PowerShell 控制台显示乱码 | 只是显示问题，文件本身是 UTF-8，用 `read` 确认 |
 | 端口残留 | 重启报占用 | 先 `Stop-Process` 掉占用 54873 的进程 |
+| 消息迁移 | 旧 `rooms.json` 里还有 `messages` | 首次读取自动迁到 `rooms/<id>/messages.jsonl`（按 id 去重）；不要再往 rooms.json 写消息 |
 
 ## 10. 文档索引
 
