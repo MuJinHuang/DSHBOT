@@ -7,7 +7,7 @@
  * 2. `fakeCtx()` 提供一只假 agent：按脚本回一句话，就能让编排逻辑跑到底，0 token。
  */
 import { createServer } from 'node:http'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -27,6 +27,16 @@ export function seedDb(dataDir, db) {
 /** 读回 rooms.json。 */
 export function readDb(dataDir) {
   return JSON.parse(readFileSync(join(dataDir, 'rooms.json'), 'utf8'))
+}
+
+/** 读某个房间的 messages.jsonl（D2 之后消息不在 rooms.json 里）。 */
+export function readMessages(dataDir, roomId) {
+  const file = join(dataDir, 'rooms', roomId, 'messages.jsonl')
+  if (!existsSync(file)) return []
+  return readFileSync(file, 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '')
+    .map((line) => JSON.parse(line))
 }
 
 /**

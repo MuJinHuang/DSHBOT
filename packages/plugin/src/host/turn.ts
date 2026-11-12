@@ -25,7 +25,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { runOnce } from './agent.js'
 import type { AgentContext, RunOutcome } from './agent.js'
-import { loadDb, roomsRoot, saveDb } from './store.js'
+import { appendMessages, loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
 
 /** 上下文块里带多少条近期消息。 */
 const RECENT_LIMIT = 12
@@ -167,10 +167,9 @@ export function healInterruptedRuns(): number {
       member.status = 'idle'
       member.activity = undefined
     }
-    db.messages.push(
+    appendMessages(room.id, [
       makeMessage(room.id, 'system', 'system', '上次执行被中断（DSH 重启或停止），状态已重置。')
-    )
-  }
+    ])  }
 
   if (healed > 0) saveDb(db)
   return healed
@@ -223,7 +222,7 @@ export function workspaceOf(room: Room): string {
 
 /** 消息流里最近若干条，压成一行摘要。 */
 function recentLines(roomId: string, limit = RECENT_LIMIT): string[] {
-  const all = loadDb().messages.filter((m) => m.roomId === roomId && m.kind !== 'tool')
+  const all = messagesOf(roomId).filter((m) => m.kind !== 'tool')
   const tail = all.slice(-limit)
   return tail.map((m) => {
     const who = m.kind === 'human' ? '我' : m.kind === 'system' ? '系统' : m.from === 'bot' ? 'Bot' : m.from
@@ -354,9 +353,7 @@ async function runMember(
         `房间预算已用尽（${formatTokens(roomNow.tokensUsed ?? 0)} / ${formatTokens(roomNow.budget.perRoom)}），` +
           `${member.name} 这一轮没有执行。可在「编辑」里调高 perRoom，或新建房间。`
       )
-      const dbBlocked = loadDb()
-      dbBlocked.messages.push(note)
-      saveDb(dbBlocked)
+      appendMessages(roomId, [note])
       return { messages: [note] }
     }
     const own = roomNow.members?.find((m) => m.botId === member.botId)
@@ -371,9 +368,7 @@ async function runMember(
         `${member.name} 的个人预算已用尽（${formatTokens(own.tokensUsed ?? 0)} / ` +
           `${formatTokens(roomNow.budget.perBot)}），这一轮没有执行。`
       )
-      const dbBlocked = loadDb()
-      dbBlocked.messages.push(note)
-      saveDb(dbBlocked)
+      appendMessages(roomId, [note])
       return { messages: [note] }
     }
   }
@@ -427,8 +422,8 @@ async function runMember(
     const botMessage = makeMessage(roomId, 'bot', member.botId, reply)
     botMessage.botId = member.botId
 
+    appendMessages(roomId, [...toolMessages, botMessage])
     const after = loadDb()
-    after.messages.push(...toolMessages, botMessage)
     const done = after.rooms.find((r) => r.id === roomId)
     if (done !== undefined) {
       done.tokensUsed = (done.tokensUsed ?? 0) + outcome.usage.total
@@ -455,9 +450,7 @@ async function runMember(
         `${member.name} 这一轮消耗 ${formatTokens(outcome.usage.total)}，超过单轮预算 ` +
           `${formatTokens(perRun)}。已经跑完拦不住，但下一轮会被额度闸门检查。`
       )
-      const withWarn = loadDb()
-      withWarn.messages.push(warn)
-      saveDb(withWarn)
+      appendMessages(roomId, [warn])
       produced.push(warn)
     }
 
@@ -471,8 +464,8 @@ async function runMember(
       `${member.name} 这一轮失败了：${error instanceof Error ? error.message : '未知错误'}`
     )
     note.botId = member.botId
+    appendMessages(roomId, [note])
     const broken = loadDb()
-    broken.messages.push(note)
     const seat2 = broken.rooms
       .find((r) => r.id === roomId)
       ?.members?.find((m) => m.botId === member.botId)
@@ -721,7 +714,7 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
   const hostIds = new Set(
     (room.members ?? []).filter((m) => m.role === 'host').map((m) => m.botId)
   )
-  const botMessages = db.messages.filter((m) => m.roomId === roomId && m.kind === 'bot')
+  const botMessages = messagesOf(roomId).filter((m) => m.kind === 'bot')
   const workerMessages = botMessages.filter((m) => m.botId === undefined || !hostIds.has(m.botId))
   const picked = (workerMessages.length > 0 ? workerMessages : botMessages).slice(-3)
 
@@ -850,12 +843,12 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
     done.updatedAt = nowIso()
   }
 
-  // 连续重复的验收结果不再刷屏：上一条系统消息内容一样就不发
-  const last = after.messages.filter((m) => m.roomId === roomId).at(-1)
+  // 连续重复的验收结果不再刷屏：上一条消息内容一样就不发
+  const last = messagesOf(roomId).at(-1)
   const duplicated =
     last !== undefined && last.kind === 'system' && last.text === delivery.summary
   if (!duplicated) {
-    after.messages.push(makeMessage(roomId, 'system', 'system', delivery.summary))
+    appendMessages(roomId, [makeMessage(roomId, 'system', 'system', delivery.summary)])
   }
   saveDb(after)
 
@@ -889,8 +882,8 @@ export async function handleRoomMessage(
     const nobody = willRun && targets.length === 0
 
     // 落盘用户消息；排队期间就把状态标出来
+    appendMessages(roomId, [userMessage])
     const before = loadDb()
-    before.messages.push(userMessage)
     const pending = before.rooms.find((r) => r.id === roomId)
     if (pending !== undefined) {
       pending.status = willRun && !nobody ? 'working' : 'created'
@@ -914,11 +907,8 @@ export async function handleRoomMessage(
           ? '房间里有多只 Bot，没有 @ 谁，这条只记录。用 @名字 指给某一只，或拉一只总管进来。'
           : '房间设成了「仅 @ 响应」，这条只记录。'
       )
-      const db2 = loadDb()
-      db2.messages.push(hint)
-      saveDb(db2)
-      return { messages: [userMessage, hint], skipped: true }
-    }
+      appendMessages(roomId, [hint])
+      return { messages: [userMessage, hint], skipped: true }    }
 
     // 跑之前先给工作区打个快照，出问题能退回来
     snapshotWorkspace(snapshotsOf(room), workspaceOf(room), `运行前快照 ${nowIso()}`)
@@ -1018,13 +1008,13 @@ export async function handleRoomMessage(
             'system',
             `计划已生成：${plans.length} 件事等待确认。到上方点「批准执行」或「否决」。`
           )
-          withCards.messages.push(...warnings, ...cards, hint)
+          appendMessages(roomId, [...warnings, ...cards, hint])
           saveDb(withCards)
           produced.push(...warnings, ...cards, hint)
           return finishTurn(roomId, produced)
         }
 
-        withCards.messages.push(...warnings, ...cards)
+        appendMessages(roomId, [...warnings, ...cards])
         saveDb(withCards)
         produced.push(...warnings, ...cards)
 
@@ -1128,9 +1118,7 @@ export async function runPlan(
       ...(summary === '' ? {} : { result: summary })
     }
     doneCard.botId = plan.receiver.botId
-    const closed = loadDb()
-    closed.messages.push(doneCard)
-    saveDb(closed)
+    appendMessages(roomId, [doneCard])
     produced.push(doneCard)
   }
 

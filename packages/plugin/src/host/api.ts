@@ -17,7 +17,7 @@ import type { BotDefinition, Member, Room, TeamTemplate } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
 import type { Database } from './store.js'
-import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
+import { appendMessages, deleteMessages, loadDb, messagesOf, roomsRoot, saveDb, updateMessages } from './store.js'
 import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan, snapshotsOf } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
@@ -180,7 +180,7 @@ function pauseRoom(roomId: string, reason: string): ReturnType<typeof makeMessag
     target.updatedAt = nowIso()
   }
   const note = makeMessage(roomId, 'system', 'system', reason)
-  db.messages.push(note)
+  appendMessages(roomId, [note])
   saveDb(db)
   return note
 }
@@ -507,8 +507,9 @@ export function createHandler(ctx: AgentContext) {
         if (method === 'DELETE') {
           const db = loadDb()
           db.rooms = db.rooms.filter((r) => r.id !== roomId)
-          db.messages = db.messages.filter((m) => m.roomId !== roomId)
           saveDb(db)
+          // 房间没了，消息文件也一起清掉，别留孤儿
+          deleteMessages(roomId)
           send(res, 200, { deleted: true })
           return
         }
@@ -799,7 +800,7 @@ export function createHandler(ctx: AgentContext) {
             }
           }
           const note = makeMessage(roomId, 'system', 'system', '已接管：Bot 停手，现在改由人直接操作工作区。')
-          db.messages.push(note)
+          appendMessages(roomId, [note])
           target.updatedAt = nowIso()
           saveDb(db)
           send(res, 200, { room: target, messages: [note] })
@@ -821,7 +822,7 @@ export function createHandler(ctx: AgentContext) {
             'system',
             `已交还，人在接管期间做了：${summary}`
           )
-          db.messages.push(note)
+          appendMessages(roomId, [note])
           target.updatedAt = nowIso()
           saveDb(db)
           send(res, 200, { room: target, messages: [note] })
@@ -832,15 +833,19 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
-      // ---- /rooms/:id/audit（导出 JSONL 审计）----
+      // ---- /rooms/:id/audit（导出 JSONL / 读 JSON 数组）----
       if (parts.length === 3 && parts[2] === 'audit' && method === 'GET') {
-        const body = toJsonl(auditRecords(messagesOf(roomId)))
+        const records = auditRecords(messagesOf(roomId))
+        if (url.searchParams.get('format') === 'json') {
+          send(res, 200, { records })
+          return
+        }
         res.writeHead(200, {
           'content-type': 'application/x-ndjson; charset=utf-8',
           'content-disposition': `attachment; filename="${roomId}.audit.jsonl"`,
           'cache-control': 'no-store'
         })
-        res.end(body)
+        res.end(toJsonl(records))
         return
       }
 
@@ -893,12 +898,12 @@ export function createHandler(ctx: AgentContext) {
 
         // 计划里的任务卡状态随之变化：选中的 running，没选的 skipped
         const markCards = (statusOf: (payload: Record<string, unknown>) => string): void => {
-          for (const message of db.messages) {
-            const payload = message.payload as Record<string, unknown> | undefined
-            if (message.roomId === roomId && payload?.planId === plan.id) {
-              payload.status = statusOf(payload)
+          updateMessages(roomId, (messages) => {
+            for (const message of messages) {
+              const payload = message.payload as Record<string, unknown> | undefined
+              if (payload?.planId === plan.id) payload.status = statusOf(payload)
             }
-          }
+          })
         }
 
         if (action === 'reject') {
@@ -907,7 +912,7 @@ export function createHandler(ctx: AgentContext) {
           target.status = 'created'
           target.updatedAt = nowIso()
           const note = makeMessage(roomId, 'system', 'system', '计划已否决，没有执行。')
-          db.messages.push(note)
+          appendMessages(roomId, [note])
           saveDb(db)
           send(res, 200, { room: target, messages: [note] })
           return
@@ -963,7 +968,7 @@ export function createHandler(ctx: AgentContext) {
 
           const skippedCount = plan.items.length - selected.length
           // 批准这件事必须进消息流：否则执行者读到的还是"计划已生成，等待确认"
-          db.messages.push(
+          appendMessages(roomId, [
             makeMessage(
               roomId,
               'system',
@@ -971,7 +976,7 @@ export function createHandler(ctx: AgentContext) {
               `计划已批准：${selected.length} 件事开始执行` +
                 (skippedCount > 0 ? `，${skippedCount} 件先跳过（任务卡标为 skipped）。` : '。')
             )
-          )
+          ])
           saveDb(db)
 
           const produced = await runPlan(
@@ -1023,9 +1028,7 @@ export function createHandler(ctx: AgentContext) {
             'system',
             ok ? `已回滚到版本 ${input.hash.trim()}` : `回滚失败：${input.hash.trim()}`
           )
-          const db = loadDb()
-          db.messages.push(note)
-          saveDb(db)
+          appendMessages(roomId, [note])
           send(res, ok ? 200 : 500, { ok, versions: listVersions(snap, dir), messages: [note] })
           return
         }
@@ -1054,7 +1057,7 @@ export function createHandler(ctx: AgentContext) {
           'system',
           stopped ? '已停止：这一轮被手动中断。' : '当前没有在跑的轮次。'
         )
-        db.messages.push(note)
+        appendMessages(roomId, [note])
         saveDb(db)
         send(res, 200, { stopped, messages: [note] })
         return
@@ -1063,7 +1066,35 @@ export function createHandler(ctx: AgentContext) {
       // ---- /rooms/:id/messages（读 / 说）----
       if (parts.length === 3 && parts[2] === 'messages') {
         if (method === 'GET') {
-          send(res, 200, { messages: messagesOf(roomId) })
+          const limitRaw = url.searchParams.get('limit')
+          const before = url.searchParams.get('before')
+
+          // 不带 limit 时保持老行为（一次给全）——外部脚本还在这么用
+          if (limitRaw === null && before === null) {
+            send(res, 200, { messages: messagesOf(roomId), hasMore: false })
+            return
+          }
+
+          const parsedLimit = Number(limitRaw ?? '80')
+          const limit = Number.isFinite(parsedLimit)
+            ? Math.min(Math.max(Math.round(parsedLimit), 1), 500)
+            : 80
+          const all = messagesOf(roomId)
+          let slice = all
+          if (before !== null) {
+            const index = all.findIndex((message) => message.id === before)
+            if (index < 0) {
+              send(res, 400, { error: `before 这条消息不存在：${before}` })
+              return
+            }
+            slice = all.slice(0, index)
+          }
+          const start = Math.max(0, slice.length - limit)
+          send(res, 200, {
+            messages: slice.slice(start),
+            hasMore: start > 0,
+            total: slice.length
+          })
           return
         }
 
@@ -1102,9 +1133,7 @@ export function createHandler(ctx: AgentContext) {
               'system',
               `房间里没有「${unknown.join('、')}」。现有成员：${[...known].join('、')}`
             )
-            const db = loadDb()
-            db.messages.push(note)
-            saveDb(db)
+            appendMessages(roomId, [note])
             send(res, 200, { messages: [note], skipped: true })
             return
           }

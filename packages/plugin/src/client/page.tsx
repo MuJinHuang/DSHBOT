@@ -8,6 +8,7 @@ import {
   deleteRoom,
   deliver,
   listMessages,
+  listMessagePage,
   listRooms,
   say,
   setRoomState,
@@ -20,12 +21,18 @@ import {
   listBots,
   fetchDiff,
   fetchAudit,
+  fetchAuditRecords,
   listFiles,
   readFile,
   listTeams,
   cloneRoom
 } from './api'
-import type { VersionEntry, WorkspaceFileEntry, TeamTemplate } from './api'
+import type {
+  VersionEntry,
+  WorkspaceFileEntry,
+  TeamTemplate,
+  AuditRecord
+} from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
 import { BotLibraryView, MemberPanel } from './members'
 import type { BotCard } from './api'
@@ -170,6 +177,13 @@ const STATUS_LABEL: Record<string, string> = {
   done: '已完成',
   archived: '已归档',
   paused: '已暂停'
+}
+
+/** 合并两段消息：按 id 去重，按时间排好。分页时前后两次读到的内容会有重叠。 */
+function mergeMessages(previous: Message[], incoming: Message[]): Message[] {
+  const byId = new Map(previous.map((message) => [message.id, message]))
+  for (const message of incoming) byId.set(message.id, message)
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 }
 
 /** 建房表单。 */
@@ -1067,6 +1081,153 @@ function VersionsPanel(props: {
   )
 }
 
+/** 审计 tab：按类型筛，工具调用点开看参数与输出。 */
+function AuditPanel(props: { roomId: string }) {
+  const [records, setRecords] = useState<AuditRecord[]>([])
+  const [filter, setFilter] = useState('all')
+  const [open, setOpen] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setRecords(await fetchAuditRecords(props.roomId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读取审计失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [props.roomId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const kinds = ['all', 'human', 'bot', 'tool', 'assignment', 'system']
+  const labelOf = (kind: string): string =>
+    kind === 'all' ? '全部' : kind === 'human' ? '人话' : kind === 'bot' ? 'Bot' : kind === 'tool' ? '工具' : kind === 'assignment' ? '任务卡' : '系统'
+  const shown = records.filter((record) => filter === 'all' || record.kind === filter)
+
+  return h(
+    'div',
+    { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, flexWrap: 'wrap' } },
+      ...kinds.map((kind) =>
+        h(
+          'button',
+          {
+            key: kind,
+            onClick: () => setFilter(kind),
+            style: {
+              padding: '2px 8px',
+              borderRadius: 5,
+              border: filter === kind ? 'none' : LINE,
+              background: filter === kind ? 'rgba(128,128,128,0.18)' : 'transparent',
+              color: 'inherit',
+              fontSize: 11,
+              fontFamily: 'inherit',
+              cursor: 'pointer'
+            }
+          },
+          `${labelOf(kind)}（${kind === 'all' ? records.length : records.filter((r) => r.kind === kind).length}）`
+        )
+      ),
+      h('div', { style: { flex: 1 } }),
+      h(
+        'button',
+        {
+          onClick: () => void load(),
+          style: {
+            padding: '2px 8px',
+            borderRadius: 5,
+            border: LINE,
+            background: 'transparent',
+            color: 'inherit',
+            fontSize: 11,
+            fontFamily: 'inherit',
+            cursor: 'pointer'
+          }
+        },
+        loading ? '读取中…' : '刷新'
+      )
+    ),
+    error === null ? null : h('div', { style: { color: '#e5484d', fontSize: 11 } }, error),
+    h(
+      'div',
+      {
+        style: {
+          flex: 1,
+          minHeight: 160,
+          overflow: 'auto',
+          border: LINE,
+          borderRadius: 8,
+          padding: 8,
+          fontSize: 11.5
+        }
+      },
+      shown.length === 0 && !loading
+        ? h('div', { style: { color: MUTED, textAlign: 'center', padding: '20px 0' } }, '没有这类记录')
+        : shown.map((record, index) =>
+            h(
+              'div',
+              { key: index, style: { borderBottom: LINE, padding: '4px 2px' } },
+              h(
+                'div',
+                {
+                  onClick: () => setOpen(open === index ? null : index),
+                  style: {
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'baseline',
+                    cursor: record.tool === undefined && record.card === undefined ? 'default' : 'pointer'
+                  }
+                },
+                h('span', { style: { color: MUTED, width: 62, flexShrink: 0 } },
+                  new Date(record.at).toLocaleTimeString()),
+                h(
+                  'span',
+                  {
+                    style: {
+                      padding: '0 5px',
+                      borderRadius: 3,
+                      background: 'rgba(128,128,128,0.16)',
+                      fontSize: 10.5,
+                      flexShrink: 0
+                    }
+                  },
+                  labelOf(record.kind)
+                ),
+                h('span', { style: { color: MUTED, flexShrink: 0, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis' } },
+                  record.from),
+                h('span', { style: { flex: 1, lineHeight: 1.5 } }, record.text),
+                record.card === undefined
+                  ? null
+                  : h('span', { style: { color: MUTED, flexShrink: 0 } }, record.card.status)
+              ),
+              open === index && record.tool !== undefined
+                ? h(
+                    'div',
+                    { style: { marginLeft: 70, marginTop: 4, color: MUTED, lineHeight: 1.5 } },
+                    h('div', {}, `工具：${record.tool.name}`),
+                    h('div', { style: { marginTop: 2 } }, `参数：${record.tool.input}`),
+                    h('div', { style: { marginTop: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-all' } },
+                      `输出：${record.tool.output}`)
+                  )
+                : null,
+              open === index && record.card !== undefined && record.card.result !== undefined
+                ? h('div', { style: { marginLeft: 70, marginTop: 4, color: MUTED } },
+                    `结论：${record.card.result}`)
+                : null
+            )
+          )
+    )
+  )
+}
+
 /** 待确认的计划：可以全批，也可以只批几件。 */
 function PlanBanner(props: {
   plan: NonNullable<Room['pendingPlan']>
@@ -1208,9 +1369,13 @@ function RoomDetail(props: {
   onRollback: (hash: string) => void
   onDecidePlan: (action: 'approve' | 'reject', itemIds?: string[]) => void
   planBusy: boolean
+  hasMore: boolean
+  loadingOlder: boolean
+  onLoadOlder: () => void
 }) {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
+  const [tab, setTab] = useState<'chat' | 'audit'>('chat')
   const [returnOpen, setReturnOpen] = useState(false)
   const [returnNote, setReturnNote] = useState('')
   const [editing, setEditing] = useState(false)
@@ -1234,8 +1399,26 @@ function RoomDetail(props: {
   const cap = room.budget.perRoom
   const ratio = cap > 0 ? Math.min(spent / cap, 1) : 0
 
-  const actionButton = (label: string, action: string, onClick: () => void) =>
+  const tabButton = (label: string, value: 'chat' | 'audit') =>
     h(
+      'button',
+      {
+        onClick: () => setTab(value),
+        style: {
+          padding: '4px 12px',
+          borderRadius: 6,
+          border: tab === value ? 'none' : LINE,
+          background: tab === value ? 'rgba(128,128,128,0.18)' : 'transparent',
+          color: 'inherit',
+          fontSize: 11.5,
+          fontFamily: 'inherit',
+          cursor: 'pointer'
+        }
+      },
+      label
+    )
+
+  const actionButton = (label: string, action: string, onClick: () => void) =>    h(
       'button',
       {
         key: action,
@@ -1441,41 +1624,75 @@ function RoomDetail(props: {
 
     h(VersionsPanel, { versions: props.versions, onRollback: props.onRollback }),
 
-    h(SectionTitle, { key: 'm' }, '消息流'),
     h(
       'div',
-      {
-        style: {
-          flex: 1,
-          minHeight: 120,
-          overflow: 'auto',
-          border: LINE,
-          borderRadius: 8,
-          padding: 12,
-          marginBottom: 10
-        }
-      },
-      messages.length === 0
-        ? h('div', { style: { textAlign: 'center', color: MUTED, fontSize: 12, padding: '24px 0' } },
-            '还没有消息。在下面说一句，Bot 就会接活。')
-        : messages.map((m) =>
-            h(MessageRow, {
-              key: m.id,
-              message: m,
-              member: (room.members ?? []).find((x) => x.botId === m.botId)
-            })
-          ),
-      sending
-        ? h('div', { style: { color: MUTED, fontSize: 12, padding: '4px 2px' } }, 'Bot 正在处理…')
-        : null
+      { style: { display: 'flex', gap: 6, marginBottom: 8 } },
+      tabButton('消息流', 'chat'),
+      tabButton('审计', 'audit')
     ),
+
+    tab === 'audit'
+      ? h(AuditPanel, { roomId: room.id })
+      : h(
+          'div',
+          {
+            style: {
+              flex: 1,
+              minHeight: 120,
+              overflow: 'auto',
+              border: LINE,
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 10
+            }
+          },
+          props.hasMore
+            ? h(
+                'div',
+                { style: { textAlign: 'center', marginBottom: 8 } },
+                h(
+                  'button',
+                  {
+                    onClick: props.onLoadOlder,
+                    disabled: props.loadingOlder,
+                    style: {
+                      padding: '3px 10px',
+                      borderRadius: 6,
+                      border: LINE,
+                      background: 'transparent',
+                      color: MUTED,
+                      fontSize: 11,
+                      fontFamily: 'inherit',
+                      cursor: props.loadingOlder ? 'default' : 'pointer',
+                      opacity: props.loadingOlder ? 0.6 : 1
+                    }
+                  },
+                  props.loadingOlder ? '加载中…' : '加载更早的消息'
+                )
+              )
+            : null,
+          messages.length === 0
+            ? h('div', { style: { textAlign: 'center', color: MUTED, fontSize: 12, padding: '24px 0' } },
+                '还没有消息。在下面说一句，Bot 就会接活。')
+            : messages.map((m) =>
+                h(MessageRow, {
+                  key: m.id,
+                  message: m,
+                  member: (room.members ?? []).find((x) => x.botId === m.botId)
+                })
+              ),
+          sending
+            ? h('div', { style: { color: MUTED, fontSize: 12, padding: '4px 2px' } }, 'Bot 正在处理…')
+            : null
+        ),
 
     error
       ? h('div', { style: { color: '#e5484d', fontSize: 12, marginBottom: 8 } }, error)
       : null,
 
-    paused || archived
-      ? h(
+    tab === 'chat'
+      ? paused || archived
+        ? h(
           'div',
           {
             style: {
@@ -1630,6 +1847,7 @@ function RoomDetail(props: {
                 '发送'
               )
         )
+      : null
   )
 }
 
@@ -1658,6 +1876,8 @@ export function RoomsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const [sending, setSending] = useState(false)
   const [delivering, setDelivering] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -1695,25 +1915,48 @@ export function RoomsPage() {
 
   const selected = rooms.find((room) => room.id === selectedId) ?? null
 
-  // 切房间时把消息读出来
+  // 切房间时读最近一页；更早的消息滚到顶再加载
   useEffect(() => {
     if (selectedId === null) {
       setMessages([])
+      setHasMore(false)
       return
     }
     let cancelled = false
     void (async () => {
       try {
-        const list = await listMessages(selectedId)
-        if (!cancelled) setMessages(list)
+        const page = await listMessagePage(selectedId, { limit: 80 })
+        if (cancelled) return
+        setMessages(page.messages)
+        setHasMore(page.hasMore)
       } catch {
-        if (!cancelled) setMessages([])
+        if (!cancelled) {
+          setMessages([])
+          setHasMore(false)
+        }
       }
     })()
     return () => {
       cancelled = true
     }
   }, [selectedId])
+
+  // 往上翻：拿比当前最旧一条更早的一页
+  const loadOlder = useCallback(async () => {
+    if (selectedId === null || loadingOlder) return
+    const oldest = messages[0]
+    if (oldest === undefined) return
+    setLoadingOlder(true)
+    try {
+      const page = await listMessagePage(selectedId, { limit: 80, before: oldest.id })
+      setMessages((current) => mergeMessages(page.messages, current))
+      setHasMore(page.hasMore)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '加载更早消息失败')
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [selectedId, messages, loadingOlder])
 
   // 房间状态走 SSE：一条长连接，服务端有变化就推
   useEffect(() => {
@@ -1726,9 +1969,14 @@ export function RoomsPage() {
           const room = JSON.parse(event.data) as Room
           if (room?.id === undefined) return
           setRooms((list) => list.map((r) => (r.id === room.id ? room : r)))
-          // 跑完了就把新消息补上
+          // 跑完了就把新消息补上（只取最近一页，不把整段历史拉回来）
           if (room.status !== 'working') {
-            void listMessages(selectedId).then(setMessages).catch(() => undefined)
+            void listMessagePage(selectedId, { limit: 80 })
+              .then((page) => {
+                setMessages((current) => mergeMessages(current, page.messages))
+                setHasMore(page.hasMore)
+              })
+              .catch(() => undefined)
           }
         } catch {
           /* 单帧坏了不影响后续 */
@@ -1958,19 +2206,25 @@ export function RoomsPage() {
     }
   }, [selectedId])
 
-  // 导出 Markdown
-  const exportRoom = useCallback(() => {
+  // 导出 Markdown：这里要整段历史，不受分页影响
+  const exportRoom = useCallback(async () => {
     const room = rooms.find((r) => r.id === selectedId)
     if (room === undefined) return
-    const md = buildMarkdown(room, messages)
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${room.name}.md`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [rooms, selectedId, messages])
+    try {
+      const all = await listMessages(room.id)
+      const md = buildMarkdown(room, all)
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${room.name}.md`
+      a.click()
+      URL.revokeObjectURL(url)
+      setSendError(null)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '导出失败')
+    }
+  }, [rooms, selectedId])
 
   // 导出审计 JSONL
   const exportAudit = useCallback(async () => {
@@ -2201,7 +2455,10 @@ export function RoomsPage() {
                   onRollback: (hash: string) => void doRollback(hash),
                   onDecidePlan: (action: 'approve' | 'reject', itemIds?: string[]) =>
                     void decidePlanHandler(action, itemIds),
-                  planBusy
+                  planBusy,
+                  hasMore,
+                  loadingOlder,
+                  onLoadOlder: () => void loadOlder()
                 })
               : h(
                   'div',

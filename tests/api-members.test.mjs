@@ -6,7 +6,7 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { fakeCtx, makeDataDir, readDb, seedDb, startApi } from './helpers/harness.mjs'
+import { fakeCtx, makeDataDir, readDb, readMessages, seedDb, startApi } from './helpers/harness.mjs'
 
 const NOW = '2026-11-12T00:00:00.000Z'
 const dataDir = makeDataDir()
@@ -191,12 +191,13 @@ test('A3 部分批准：只跑选中的，其余卡片标 skipped', async () => 
     assert.equal(room.pendingPlan, undefined)
     assert.equal(room.status, 'created')
 
-    const cards = db.messages.filter((m) => m.payload?.planId === 'plan_1')
+    const messages = readMessages(dataDir, roomId)
+    const cards = messages.filter((m) => m.payload?.planId === 'plan_1')
     assert.equal(cards.find((m) => m.payload.itemId === 'item_a').payload.status, 'running')
     assert.equal(cards.find((m) => m.payload.itemId === 'item_b').payload.status, 'skipped')
 
     assert.ok(
-      db.messages.some((m) => m.text.includes('1 件事开始执行，1 件先跳过')),
+      messages.some((m) => m.text.includes('1 件事开始执行，1 件先跳过')),
       '批准留痕要写清选了几件、跳了几件'
     )
   } finally {

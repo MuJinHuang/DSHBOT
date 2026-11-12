@@ -62,6 +62,19 @@ export async function listMessages(roomId: string): Promise<Message[]> {
   return data.messages ?? []
 }
 
+/** 读一页消息（从新往旧翻，返回的仍是正序）。 */
+export async function listMessagePage(
+  roomId: string,
+  options: { limit?: number; before?: string } = {}
+): Promise<{ messages: Message[]; hasMore: boolean }> {
+  const params = new URLSearchParams()
+  params.set('limit', String(options.limit ?? 80))
+  if (options.before !== undefined) params.set('before', options.before)
+  return request<{ messages: Message[]; hasMore: boolean }>(
+    `rooms/${roomId}/messages?${params.toString()}`
+  )
+}
+
 /** 在房间里说一句话，等 Bot 回话。 */
 export async function say(roomId: string, text: string): Promise<Message[]> {
   const data = await request<{ messages: Message[] }>(`rooms/${roomId}/messages`, {
@@ -327,6 +340,22 @@ export async function fetchAudit(roomId: string): Promise<string> {
   const res = await fetch(`dshbot/api/rooms/${roomId}/audit`, { cache: 'no-store' })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.text()
+}
+
+/** 审计记录（界面用，形状与 JSONL 一致）。 */
+export interface AuditRecord {
+  at: string
+  kind: string
+  from: string
+  text: string
+  tool?: { name: string; input: string; output: string }
+  card?: { status: string; result?: string; planId?: string }
+}
+
+/** 拉审计记录数组（界面筛选用）。 */
+export async function fetchAuditRecords(roomId: string): Promise<AuditRecord[]> {
+  const data = await request<{ records: AuditRecord[] }>(`rooms/${roomId}/audit?format=json`)
+  return data.records ?? []
 }
 
 /** 看某个文件的变更。 */
