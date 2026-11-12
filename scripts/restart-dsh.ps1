@@ -15,27 +15,42 @@
 .PARAMETER DryRun
   只打印将要做什么，不真的动手。
 
+.PARAMETER Exe
+  DSH 可执行文件路径。默认依次尝试：正在运行的进程、$env:DSHBOT_DSH_EXE、常见安装目录。
+
 .EXAMPLE
   .\scripts\restart-dsh.ps1 -DryRun
   .\scripts\restart-dsh.ps1
+  .\scripts\restart-dsh.ps1 -Exe 'D:\Apps\DeepSeek Harness\DeepSeek Harness.exe'
 #>
 param(
   [switch]$Force,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [string]$Exe
 )
 
 $ErrorActionPreference = 'Stop'
-
-# 桌面端的可执行文件；换机器时改这一行
-$exe = 'D:\应用\其他应用\DeepSeek_Harness\DeepSeek Harness.exe'
 $processName = 'DeepSeek Harness'
+$running = @(Get-Process -Name $processName -ErrorAction SilentlyContinue)
 
-if (-not (Test-Path $exe)) {
-  Write-Error "找不到 DSH 可执行文件：$exe"
-  return
+# 找可执行文件：参数 > 环境变量 > 正在运行的进程 > 常见安装位置
+$exe = $Exe
+if (-not $exe) { $exe = $env:DSHBOT_DSH_EXE }
+if (-not $exe -and $running.Count -gt 0) { $exe = $running[0].Path }
+if (-not $exe) {
+  $candidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\DeepSeek Harness.exe'),
+    (Join-Path $env:ProgramFiles 'DeepSeek Harness\DeepSeek Harness.exe'),
+    (Join-Path ${env:ProgramFiles(x86)} 'DeepSeek Harness\DeepSeek Harness.exe')
+  )
+  $exe = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 }
 
-$running = @(Get-Process -Name $processName -ErrorAction SilentlyContinue)
+if (-not $exe -or -not (Test-Path $exe)) {
+  Write-Error '找不到 DSH 可执行文件。请用 -Exe 或环境变量 DSHBOT_DSH_EXE 指定。'
+  exit 1
+}
+
 Write-Host "当前 $processName 进程数：$($running.Count)"
 
 if ($running.Count -eq 0) {

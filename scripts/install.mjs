@@ -1,8 +1,11 @@
 /**
- * 一条命令把当前代码装进 DSH：构建 → 类型检查 → 链接进 profile → 补丁层就位。
+ * 一条命令把当前代码装进 DSH：构建 → 类型检查 → 链接进 profile → bundle 层就位。
  *
- * 幂等：重复跑不会重复写补丁，也不会重复装包。
- * 只维护 `# >>> dshbot:managed` 到 `# <<< dshbot:managed` 之间那一段，别的内容一概不碰。
+ * v0.2 起插件声明了 `dsh.bundle.patch`，正常安装只需要 `dsh plugin add`；
+ * 这个脚本负责开发期的构建 + link，并把旧的 `# >>> dshbot:managed` 补丁段清掉，
+ * 避免 bundle 与手写补丁同时插入同一个 id。
+ *
+ * 幂等：重复跑不会重复装包，也不会重复迁移。
  *
  * 用法：
  *   node scripts/install.mjs                 # 默认装进 desktop
@@ -44,8 +47,7 @@ function readJson(file) {
 
 function findDshCli() {
   if (process.env.DSHBOT_DSH_CLI) return process.env.DSHBOT_DSH_CLI
-  const bundled = 'D:\\应用\\其他应用\\DeepSeek_Harness\\resources\\runtime\\cli\\bin\\dsh.cmd'
-  if (existsSync(bundled)) return bundled
+  // 不写死安装路径：dsh 在 PATH 里就用它；没有的话用 DSHBOT_DSH_CLI 指定。
   return 'dsh'
 }
 
@@ -82,7 +84,9 @@ if (typeof currentSpec === 'string' && currentSpec.startsWith('link:')) {
 } else {
   const dsh = findDshCli()
   const spec = packageDir.replaceAll('\\', '/')
-  sh(`"${dsh}" plugin --profile ${profile} add "link:${spec}"`)
+  // 只有路径含空格时才加引号；给 "dsh" 加引号会让 cmd 解析错，找不到真正的 cmd 路径
+  const dshArg = /\s/.test(dsh) ? `"${dsh}"` : dsh
+  sh(`${dshArg} plugin --profile ${profile} add "link:${spec}"`)
   // pnpm 会重写 package.json（依赖和 bundle 层），必须重新读，不能拿旧对象覆盖
   manifest = readJson(manifestPath)
 }
@@ -161,6 +165,6 @@ if (hasBundle) {
 console.log('\n✓ 安装完成')
 console.log(`  profile : ${profile}`)
 console.log(`  包      : ${PACKAGE_NAME} → ${packageDir}`)
-console.log(`  补丁    : ${patchPath}`)
+console.log(`  Loader  : ${hasBundle ? 'bundle 自动注册' : `手写补丁 ${patchPath}`}`)
 console.log('\n  重启 DSH 后生效（Loader 条目只在启动时组合）。')
 
