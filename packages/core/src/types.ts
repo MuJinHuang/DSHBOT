@@ -66,6 +66,16 @@ export interface BotCard {
   budget: Budget
 }
 
+/** 团队模板：一组 Bot 的固定搭配，建房时一键拉入。 */
+export interface TeamTemplate {
+  id: string
+  name: string
+  /** 引用的 Bot 库条目。 */
+  botIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
 /** 房间成员：一只 Bot 在这个房间里的身份与状态。 */
 export interface Member {
   /** 稳定身份，跨房间不变。 */

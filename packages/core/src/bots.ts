@@ -6,6 +6,7 @@
  * 因为 DSH 是按 preset 挂载工具的，硬塞白名单只能是假的。
  */
 import { newId, nowIso } from './ids.js'
+import type { Member } from './types.js'
 
 /** 一个可复用的 Bot 定义。 */
 export interface BotDefinition {
@@ -144,5 +145,29 @@ export function makeBot(input: {
     ...(input.agentPreset === undefined ? {} : { agentPreset: input.agentPreset }),
     createdAt: now,
     updatedAt: now
+  }
+}
+
+/**
+ * 把库里的角色卡复制成房间成员。
+ *
+ * 复制而不是引用：房间内改岗位/专长不该反过来改库，库是公共档案。
+ *
+ * @param bot - 库里的角色卡
+ * @param role - 总管或执行，默认执行
+ */
+export function memberFromBot(bot: BotDefinition, role: 'host' | 'worker' = 'worker'): Member {
+  return {
+    botId: newId('bot'),
+    name: bot.name,
+    role,
+    avatar: bot.avatar === '' ? '🤖' : bot.avatar,
+    status: 'idle',
+    tokensUsed: 0,
+    defId: bot.id,
+    ...(bot.persona === undefined ? {} : { persona: bot.persona }),
+    ...(bot.expertise === undefined ? {} : { expertise: bot.expertise }),
+    ...(bot.instructions === undefined ? {} : { instructions: bot.instructions }),
+    ...(bot.agentPreset === undefined ? {} : { agentPreset: bot.agentPreset })
   }
 }

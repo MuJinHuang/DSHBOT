@@ -21,9 +21,11 @@ import {
   fetchDiff,
   fetchAudit,
   listFiles,
-  readFile
+  readFile,
+  listTeams,
+  cloneRoom
 } from './api'
-import type { VersionEntry, WorkspaceFileEntry } from './api'
+import type { VersionEntry, WorkspaceFileEntry, TeamTemplate } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
 import { BotLibraryView, MemberPanel } from './members'
 import type { BotCard } from './api'
@@ -179,8 +181,16 @@ function CreateForm(props: {
   const [goal, setGoal] = useState('')
   const [acceptance, setAcceptance] = useState('')
   const [workspace, setWorkspace] = useState('')
+  const [teamId, setTeamId] = useState('')
+  const [teams, setTeams] = useState<TeamTemplate[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void listTeams()
+      .then(setTeams)
+      .catch(() => setTeams([]))
+  }, [])
 
   const ready = name.trim() !== '' && goal.trim() !== '' && acceptance.trim() !== ''
 
@@ -195,7 +205,8 @@ function CreateForm(props: {
           .split('\n')
           .map((line) => line.trim())
           .filter(Boolean),
-        ...(workspace.trim() === '' ? {} : { workspaceDir: workspace.trim() })
+        ...(workspace.trim() === '' ? {} : { workspaceDir: workspace.trim() }),
+        ...(teamId === '' ? {} : { teamId })
       })
       props.onCreated(room)
     } catch (err) {
@@ -203,7 +214,7 @@ function CreateForm(props: {
     } finally {
       setBusy(false)
     }
-  }, [name, goal, acceptance, workspace, props])
+  }, [name, goal, acceptance, workspace, teamId, props])
 
   const inputStyle = {
     width: '100%',
@@ -232,6 +243,25 @@ function CreateForm(props: {
         placeholder: '改造登录页',
         style: inputStyle
       })
+    ),
+
+    h('div', { style: { marginBottom: 14 } },
+      h('div', { style: { fontSize: 12, marginBottom: 6 } },
+        '团队模板',
+        h('span', { style: { color: MUTED, marginLeft: 8 } }, '可选，建房时一次拉入一组 Bot')
+      ),
+      h(
+        'select',
+        {
+          value: teamId,
+          onChange: (e: { target: { value: string } }) => setTeamId(e.target.value),
+          style: inputStyle
+        },
+        h('option', { value: '' }, teams.length === 0 ? '还没有团队模板（去 Bot 库存一个）' : '不拉人，稍后自己拉'),
+        ...teams.map((team) =>
+          h('option', { key: team.id, value: team.id }, `${team.name}（${team.botIds.length} 只）`)
+        )
+      )
     ),
 
     h('div', { style: { marginBottom: 14 } },
@@ -1171,6 +1201,7 @@ function RoomDetail(props: {
   onStop: () => void
   onEdit: (input: { name: string; goal: string; acceptance: string[]; workspaceDir: string }) => void
   onDelete: () => void
+  onClone: () => void
   onExport: () => void
   onExportAudit: () => void
   versions: VersionEntry[]
@@ -1244,6 +1275,7 @@ function RoomDetail(props: {
       ),
       actionButton('导出', 'export', () => props.onExport()),
       actionButton('审计', 'audit', () => props.onExportAudit()),
+      actionButton('另存为', 'clone', () => props.onClone()),
       actionButton(editing ? '取消编辑' : '编辑', 'edit', () => setEditing(!editing)),
       paused
         ? actionButton('恢复', 'resume', () => props.onState('resume'))
@@ -1899,6 +1931,19 @@ export function RoomsPage() {
     [selectedId]
   )
 
+  // 另存为：复制目标/验收/成员，不带消息
+  const duplicateRoom = useCallback(async () => {
+    if (selectedId === null) return
+    try {
+      const room = await cloneRoom(selectedId)
+      setRooms((list) => [room, ...list])
+      setSelectedId(room.id)
+      setSendError(null)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '另存失败')
+    }
+  }, [selectedId])
+
   // 删房间
   const removeRoom = useCallback(async () => {
     if (selectedId === null) return
@@ -2149,6 +2194,7 @@ export function RoomsPage() {
                     workspaceDir: string
                   }) => void editRoom(input),
                   onDelete: () => void removeRoom(),
+                  onClone: () => void duplicateRoom(),
                   onExport: () => exportRoom(),
                   onExportAudit: () => void exportAudit(),
                   versions,

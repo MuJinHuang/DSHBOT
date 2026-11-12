@@ -7,19 +7,25 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { createElement as h } from 'react'
+import type { ChangeEvent } from 'react'
 import type { Member, Room } from '@dshbot/core'
 import {
   addMember,
   deleteBot,
+  deleteTeam,
+  exportBot,
+  importBot,
   listBots,
   listPresets,
+  listTeams,
   removeMember,
   saveBot,
+  saveTeam,
   splitBotText,
   updateBot,
   updateMember
 } from './api'
-import type { BotCard, PresetEntry } from './api'
+import type { BotCard, PresetEntry, TeamTemplate } from './api'
 
 const LINE = '1px solid rgba(128,128,128,0.25)'
 const MUTED = 'rgba(128,128,128,0.72)'
@@ -272,34 +278,250 @@ export function BotLibraryView(props: {
 }) {
   const selected = props.bots.find((bot) => bot.id === props.selectedId) ?? null
   const [error, setError] = useState<string | null>(null)
+  const [teams, setTeams] = useState<TeamTemplate[]>([])
+  const [teamOpen, setTeamOpen] = useState(false)
+  const [teamName, setTeamName] = useState('')
+  const [teamPick, setTeamPick] = useState<string[]>([])
+  const [teamBusy, setTeamBusy] = useState(false)
+
+  const refreshTeams = useCallback(async () => {
+    try {
+      setTeams(await listTeams())
+    } catch {
+      setTeams([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshTeams()
+  }, [refreshTeams])
+
+  const headerButton = (label: string, onClick: () => void) =>
+    h(
+      'button',
+      {
+        onClick,
+        style: {
+          padding: '5px 12px',
+          borderRadius: 6,
+          border: LINE,
+          background: 'transparent',
+          color: 'inherit',
+          fontSize: 12,
+          fontFamily: 'inherit',
+          cursor: 'pointer'
+        }
+      },
+      label
+    )
+
+  const download = async (bot: BotCard): Promise<void> => {
+    try {
+      const data = await exportBot(bot.id)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${bot.name}.bot.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '导出失败')
+    }
+  }
+
+  const importFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = event.target.files?.[0]
+    if (file === undefined) return
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown
+      const bot = await importBot(parsed)
+      props.onChanged()
+      props.onSelect(bot.id)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '导入失败')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  const saveTeamNow = async (): Promise<void> => {
+    if (teamName.trim() === '') {
+      setError('团队名不能为空')
+      return
+    }
+    if (teamPick.length === 0) {
+      setError('至少勾一只 Bot')
+      return
+    }
+    setTeamBusy(true)
+    try {
+      await saveTeam({ name: teamName.trim(), botIds: teamPick })
+      setTeamName('')
+      setTeamPick([])
+      setTeamOpen(false)
+      await refreshTeams()
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存团队失败')
+    } finally {
+      setTeamBusy(false)
+    }
+  }
+
+  const removeTeam = async (teamId: string): Promise<void> => {
+    try {
+      await deleteTeam(teamId)
+      await refreshTeams()
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除团队失败')
+    }
+  }
 
   return h(
     'div',
     { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } },
     h(
       'div',
-      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 } },
+      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' } },
       h('div', { style: { fontSize: 17 } }, 'Bot 库'),
       h('div', { style: { fontSize: 12, color: MUTED } }, `${props.bots.length} 个`),
       h('div', { style: { flex: 1 } }),
+      headerButton(teamOpen ? '收起团队' : `团队模板${teams.length === 0 ? '' : `（${teams.length}）`}`, () =>
+        setTeamOpen(!teamOpen)
+      ),
       h(
-        'button',
+        'label',
         {
-          onClick: () => props.onSelect(null),
           style: {
             padding: '5px 12px',
             borderRadius: 6,
             border: LINE,
-            background: 'transparent',
-            color: 'inherit',
             fontSize: 12,
-            fontFamily: 'inherit',
             cursor: 'pointer'
           }
         },
-        '＋ 新建 Bot'
-      )
+        '导入',
+        h('input', {
+          type: 'file',
+          accept: '.json,application/json',
+          style: { display: 'none' },
+          onChange: (event: ChangeEvent<HTMLInputElement>) => void importFile(event)
+        })
+      ),
+      headerButton('＋ 新建 Bot', () => props.onSelect(null))
     ),
+
+    teamOpen
+      ? h(
+          'div',
+          {
+            style: {
+              border: LINE,
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              maxWidth: 640
+            }
+          },
+          h('div', { style: { fontSize: 12, color: MUTED } },
+            '把常一起干活的几只 Bot 存成团队，建房时一次拉入。'),
+          h(
+            'div',
+            { style: { display: 'flex', gap: 6 } },
+            h('input', {
+              value: teamName,
+              placeholder: '团队名，如「硬件小分队」',
+              onChange: (e: { target: { value: string } }) => setTeamName(e.target.value),
+              style: { ...field, flex: 1 }
+            }),
+            h(
+              'button',
+              {
+                onClick: () => void saveTeamNow(),
+                disabled: teamBusy,
+                style: { ...smallButton(true), flex: '0 0 96px' }
+              },
+              teamBusy ? '保存中…' : '存为团队'
+            )
+          ),
+          props.bots.length === 0
+            ? h('div', { style: { fontSize: 11, color: MUTED } }, '库里还没有 Bot')
+            : h(
+                'div',
+                { style: { display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 140, overflow: 'auto' } },
+                ...props.bots.map((bot) =>
+                  h(
+                    'label',
+                    {
+                      key: bot.id,
+                      style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '3px 7px',
+                        border: LINE,
+                        borderRadius: 6,
+                        fontSize: 11.5,
+                        cursor: 'pointer'
+                      }
+                    },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: teamPick.includes(bot.id),
+                      onChange: () =>
+                        setTeamPick((current) =>
+                          current.includes(bot.id)
+                            ? current.filter((id) => id !== bot.id)
+                            : [...current, bot.id]
+                        )
+                    }),
+                    `${bot.avatar} ${bot.name}`
+                  )
+                )
+              ),
+          teams.length === 0
+            ? null
+            : h(
+                'div',
+                { style: { borderTop: LINE, paddingTop: 6 } },
+                ...teams.map((team) =>
+                  h(
+                    'div',
+                    {
+                      key: team.id,
+                      style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, padding: '2px 0' }
+                    },
+                    h('span', { style: { flex: 1 } }, `${team.name}（${team.botIds.length} 只）`),
+                    h(
+                      'button',
+                      {
+                        onClick: () => void removeTeam(team.id),
+                        style: {
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          border: LINE,
+                          background: 'transparent',
+                          color: '#e5484d',
+                          fontSize: 10.5,
+                          fontFamily: 'inherit',
+                          cursor: 'pointer'
+                        }
+                      },
+                      '删除'
+                    )
+                  )
+                )
+              )
+        )
+      : null,
+
     error === null ? null : h('div', { style: { color: '#e5484d', fontSize: 12 } }, error),
     h(
       'div',
@@ -349,6 +571,25 @@ export function BotLibraryView(props: {
                 `${selected?.avatar ?? ''} ${selected?.name ?? ''}`
               ),
               h('div', { style: { flex: 1 } }),
+              selected === null
+                ? null
+                : h(
+                    'button',
+                    {
+                      onClick: () => void download(selected),
+                      style: {
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        border: LINE,
+                        background: 'transparent',
+                        color: 'inherit',
+                        fontSize: 11.5,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer'
+                      }
+                    },
+                    '导出'
+                  ),
               h(
                 'button',
                 {

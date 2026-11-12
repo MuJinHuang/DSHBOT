@@ -16,6 +16,8 @@ export interface NewRoomInput {
   acceptance: string[]
   /** 可选：绑定一个已有目录当工作区；不填就用房间自己的空目录。 */
   workspaceDir?: string
+  /** 可选：从团队模板一键拉人。 */
+  teamId?: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -245,6 +247,73 @@ export async function updateBot(
 /** 删库里的 Bot。 */
 export async function deleteBot(botId: string): Promise<void> {
   await request<{ deleted: boolean }>(`bots/${botId}`, { method: 'DELETE' })
+}
+
+/** 导出的角色卡格式（与 POST /bots/import 对称）。 */
+export interface BotExport {
+  format: 'dshbot.bot'
+  version: number
+  exportedAt: string
+  bot: {
+    name: string
+    avatar: string
+    persona?: string
+    expertise?: string
+    instructions?: string
+    agentPreset?: string
+  }
+}
+
+/** 导出一张角色卡。 */
+export async function exportBot(botId: string): Promise<BotExport> {
+  return request<BotExport>(`bots/${botId}/export`)
+}
+
+/** 导入一张角色卡（接受导出的同格式 JSON）。 */
+export async function importBot(payload: unknown): Promise<BotCard> {
+  const data = await request<{ bot: BotCard }>('bots/import', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+  return data.bot
+}
+
+/** 团队模板：一组 Bot 的固定搭配。 */
+export interface TeamTemplate {
+  id: string
+  name: string
+  botIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+/** 列团队模板。 */
+export async function listTeams(): Promise<TeamTemplate[]> {
+  const data = await request<{ teams: TeamTemplate[] }>('bots/teams')
+  return data.teams ?? []
+}
+
+/** 把一组 Bot 存成团队模板。 */
+export async function saveTeam(input: { name: string; botIds: string[] }): Promise<TeamTemplate> {
+  const data = await request<{ team: TeamTemplate }>('bots/teams', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+  return data.team
+}
+
+/** 删团队模板。 */
+export async function deleteTeam(teamId: string): Promise<void> {
+  await request<{ deleted: boolean }>(`bots/teams/${teamId}`, { method: 'DELETE' })
+}
+
+/** 另存为房间：复制目标/验收/成员，不带消息。 */
+export async function cloneRoom(roomId: string): Promise<Room> {
+  const data = await request<{ room: Room }>(`rooms/${roomId}/clone`, {
+    method: 'POST',
+    body: '{}'
+  })
+  return data.room
 }
 
 /** 列出可选工具集。 */

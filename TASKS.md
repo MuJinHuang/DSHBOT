@@ -126,9 +126,9 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 | N1-B1 | 文件浏览接口 | `GET /rooms/:id/files` 列工作区文件（名称/大小/时间，排除 .git） | ✅ 跳过 .git / node_modules，最多 500 条 |
 | N1-B2 | 文件预览 | `GET /rooms/:id/file?path=` 返回文本；二进制/超大拒绝 | ✅ 二进制 415，>200KB 413，越界 400 |
 | N1-B3 | 交付页文件 tab | 交付面板加「文件」tab，Markdown 用 `parseBlocks` 渲染 | ✅ 点开 .md 走 Markdown，其余等宽预览 |
-| N1-C1 | Bot 卡导出/导入 | `GET /bots/:id/export`；`POST /bots/import` | ⬜ |
-| N1-C2 | 团队模板 | `POST /bots/teams`；建房时一键拉入 | ⬜ |
-| N1-C3 | 房间模板 | `POST /rooms/:id/clone` 复制目标/验收/成员（不带消息） | ⬜ |
+| N1-C1 | Bot 卡导出/导入 | `GET /bots/:id/export`；`POST /bots/import` | ✅ 格式 `dshbot.bot` v1；界面可下载/选文件导入 |
+| N1-C2 | 团队模板 | `POST /bots/teams`；建房时一键拉入 | ✅ 库页面存团队；建房表单选模板 |
+| N1-C3 | 房间模板 | `POST /rooms/:id/clone` 复制目标/验收/成员（不带消息） | ✅ 头部「另存为」；会话/花费/消息都清零 |
 | N1-D1 | 消息分页 | `GET /messages?limit=&before=`；界面滚到顶加载更多 | ⬜ |
 | N1-D2 | 数据分片 | 消息按房间分文件，`rooms.json` 只存房间 | ⬜ |
 | N1-D3 | 审计界面 | 房间页「审计」tab：按类型筛选、看单条工具调用 | ⬜ |

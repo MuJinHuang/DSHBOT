@@ -12,10 +12,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { auditRecords, makeBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
-import type { Member, Room } from '@dshbot/core'
+import { auditRecords, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
+import type { BotDefinition, Member, Room, TeamTemplate } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
+import type { Database } from './store.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
 import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan, snapshotsOf } from './turn.js'
 
@@ -81,10 +82,42 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+/** 库里什么都没有时，塞一只默认执行者，让新房间能立刻说话。 */
+function defaultMember(): Member {
+  return {
+    botId: 'bot_default',
+    name: '小柯',
+    role: 'worker',
+    avatar: '🧑‍💻',
+    status: 'idle',
+    tokensUsed: 0
+  }
+}
+
+/**
+ * 建房时初始成员：团队模板优先；库里有货就不塞裸 Bot。
+ *
+ * @param db - 当前库
+ * @param teamId - 可选的团队模板 id
+ */
+function seedMembersFor(db: Database, teamId: unknown): Member[] | { error: string } {
+  if (isNonEmptyString(teamId)) {
+    const team = (db.teams ?? []).find((item) => item.id === teamId.trim())
+    if (team === undefined) return { error: `团队模板不存在：${teamId}` }
+    const members = team.botIds
+      .map((id) => db.bots.find((bot) => bot.id === id))
+      .filter((bot): bot is BotDefinition => bot !== undefined)
+      .map((bot) => memberFromBot(bot))
+    if (members.length === 0) return { error: '这个团队模板里的 Bot 都已经不在库里了' }
+    return members
+  }
+  return db.bots.length === 0 ? [defaultMember()] : []
+}
+
 /** 校验并构造一个新房间。 */
 function buildRoom(
   input: Record<string, unknown>,
-  seedDefaultBot: boolean
+  seedMembers: Member[]
 ): Room | { error: string } {
   const name = input.name
   const goal = input.goal
@@ -131,20 +164,8 @@ function buildRoom(
     shared: '',
     workspaceDir,
     tokensUsed: 0,
-    // 库里还没有 Bot 时，塞一只默认执行者让新房间能立刻说话；
-    // 库里有货就不塞——否则会多出一只没有角色卡的"裸" Bot，还会和库里的撞名
-    members: seedDefaultBot
-      ? [
-          {
-            botId: 'bot_default',
-            name: '小柯',
-            role: 'worker',
-            avatar: '🧑‍💻',
-            status: 'idle',
-            tokensUsed: 0
-          }
-        ]
-      : [],
+    // 团队模板 / 默认成员由调用方算好；没有就留空，让用户自己从库里拉
+    members: seedMembers,
     createdAt: now,
     updatedAt: now
   }
@@ -195,6 +216,114 @@ export function createHandler(ctx: AgentContext) {
           send(res, 200, { bots: loadDb().bots })
           return
         }
+
+        // ---- /bots/teams（团队模板：一组 Bot 的固定搭配）----
+        if (parts[1] === 'teams') {
+          if (parts.length === 2 && method === 'GET') {
+            send(res, 200, { teams: loadDb().teams ?? [] })
+            return
+          }
+          if (parts.length === 2 && method === 'POST') {
+            const input = (await readJson(req)) as { name?: unknown; botIds?: unknown }
+            if (!isNonEmptyString(input.name)) {
+              send(res, 400, { error: 'name 不能为空' })
+              return
+            }
+            const botIds = Array.isArray(input.botIds)
+              ? input.botIds.filter(isNonEmptyString).map((id) => id.trim())
+              : []
+            const ids = [...new Set(botIds)]
+            if (ids.length === 0) {
+              send(res, 400, { error: '至少选一只 Bot' })
+              return
+            }
+            const db = loadDb()
+            const missing = ids.filter((id) => !db.bots.some((bot) => bot.id === id))
+            if (missing.length > 0) {
+              send(res, 404, { error: `这些 Bot 不在库里：${missing.join('、')}` })
+              return
+            }
+            const now = nowIso()
+            const team: TeamTemplate = {
+              id: newId('team'),
+              name: input.name.trim(),
+              botIds: ids,
+              createdAt: now,
+              updatedAt: now
+            }
+            db.teams = [...(db.teams ?? []), team]
+            saveDb(db)
+            send(res, 201, { team })
+            return
+          }
+          if (parts.length === 3 && method === 'DELETE') {
+            const db = loadDb()
+            db.teams = (db.teams ?? []).filter((team) => team.id !== parts[2])
+            saveDb(db)
+            send(res, 200, { deleted: true })
+            return
+          }
+          send(res, 404, { error: 'not found' })
+          return
+        }
+
+        // ---- /bots/import（接受导出的同格式 JSON）----
+        if (parts.length === 2 && parts[1] === 'import' && method === 'POST') {
+          const input = (await readJson(req)) as Record<string, unknown>
+          const wrapper = input.bot
+          const card =
+            wrapper !== null && typeof wrapper === 'object'
+              ? (wrapper as Record<string, unknown>)
+              : input
+          if (input.format !== undefined && input.format !== 'dshbot.bot') {
+            send(res, 400, { error: `不认识的格式：${String(input.format)}` })
+            return
+          }
+          if (!isNonEmptyString(card.name)) {
+            send(res, 400, { error: '导入的 Bot 缺 name' })
+            return
+          }
+          const text = (key: string): string | undefined =>
+            isNonEmptyString(card[key]) ? (card[key] as string).trim() : undefined
+          const bot = makeBot({
+            name: text('name') as string,
+            ...(text('avatar') === undefined ? {} : { avatar: text('avatar') as string }),
+            ...(text('persona') === undefined ? {} : { persona: text('persona') as string }),
+            ...(text('expertise') === undefined ? {} : { expertise: text('expertise') as string }),
+            ...(text('instructions') === undefined ? {} : { instructions: text('instructions') as string }),
+            ...(text('agentPreset') === undefined ? {} : { agentPreset: text('agentPreset') as string })
+          })
+          const db = loadDb()
+          db.bots.push(bot)
+          saveDb(db)
+          send(res, 201, { bot })
+          return
+        }
+
+        // ---- /bots/:id/export（导出一张角色卡）----
+        if (parts.length === 3 && parts[2] === 'export' && method === 'GET') {
+          const db = loadDb()
+          const bot = db.bots.find((item) => item.id === parts[1])
+          if (bot === undefined) {
+            send(res, 404, { error: '这个 Bot 不存在' })
+            return
+          }
+          send(res, 200, {
+            format: 'dshbot.bot',
+            version: 1,
+            exportedAt: nowIso(),
+            bot: {
+              name: bot.name,
+              avatar: bot.avatar,
+              ...(bot.persona === undefined ? {} : { persona: bot.persona }),
+              ...(bot.expertise === undefined ? {} : { expertise: bot.expertise }),
+              ...(bot.instructions === undefined ? {} : { instructions: bot.instructions }),
+              ...(bot.agentPreset === undefined ? {} : { agentPreset: bot.agentPreset })
+            }
+          })
+          return
+        }
+
         // /bots/split：把一大段话拆成三块，不落库
         if (parts.length === 2 && parts[1] === 'split' && method === 'POST') {
           const input = (await readJson(req)) as { text?: unknown }
@@ -286,7 +415,12 @@ export function createHandler(ctx: AgentContext) {
         if (method === 'POST') {
           const input = (await readJson(req)) as Record<string, unknown>
           const db = loadDb()
-          const room = buildRoom(input, db.bots.length === 0)
+          const seed = seedMembersFor(db, input.teamId)
+          if ('error' in seed) {
+            send(res, 400, { error: seed.error })
+            return
+          }
+          const room = buildRoom(input, seed)
           if ('error' in room) {
             send(res, 400, { error: room.error })
             return
@@ -385,6 +519,51 @@ export function createHandler(ctx: AgentContext) {
         }
 
         send(res, 405, { error: 'method not allowed' })
+        return
+      }
+
+      // ---- /rooms/:id/clone（另存为：复制目标/验收/成员，不带消息）----
+      if (parts.length === 3 && parts[2] === 'clone' && method === 'POST') {
+        const db = loadDb()
+        const source = db.rooms.find((r) => r.id === roomId)
+        if (source === undefined) {
+          send(res, 404, { error: '房间不存在' })
+          return
+        }
+        const now = nowIso()
+        const id = newId('room')
+        const workspaceDir = join(roomsRoot(), id, 'work')
+        try {
+          mkdirSync(workspaceDir, { recursive: true })
+        } catch {
+          /* 建不出来等第一次跑再试 */
+        }
+        const clone: Room = {
+          ...source,
+          id,
+          name: `${source.name} 副本`,
+          status: 'created',
+          shared: '',
+          workspaceDir,
+          tokensUsed: 0,
+          // 成员整份复制（岗位/专长/工具集都带着），但会话与花费清零
+          members: (source.members ?? []).map((member) => ({
+            ...member,
+            sessionId: undefined,
+            sessionSeq: undefined,
+            status: 'idle',
+            activity: undefined,
+            tokensUsed: 0,
+            files: undefined
+          })),
+          pendingPlan: undefined,
+          delivery: undefined,
+          createdAt: now,
+          updatedAt: now
+        }
+        db.rooms.unshift(clone)
+        saveDb(db)
+        send(res, 201, { room: clone })
         return
       }
 
