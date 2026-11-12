@@ -130,6 +130,30 @@ export async function removeMember(roomId: string, botId: string): Promise<Room>
   return data.room
 }
 
+/** 工作区里的一个文件。 */
+export interface WorkspaceFileEntry {
+  path: string
+  size: number
+  mtime: string
+}
+
+/** 列房间工作区里的文件。 */
+export async function listFiles(
+  roomId: string
+): Promise<{ files: WorkspaceFileEntry[]; truncated: boolean }> {
+  return request<{ files: WorkspaceFileEntry[]; truncated: boolean }>(`rooms/${roomId}/files`)
+}
+
+/** 读一个文本文件；二进制 / 超大 / 越界会抛错。 */
+export async function readFile(
+  roomId: string,
+  path: string
+): Promise<{ path: string; size: number; mtime: string; text: string }> {
+  return request<{ path: string; size: number; mtime: string; text: string }>(
+    `rooms/${roomId}/file?path=${encodeURIComponent(path)}`
+  )
+}
+
 /** 跑一次验收，拿交付结论。 */
 export async function deliver(roomId: string): Promise<Delivery> {
   const data = await request<{ delivery: Delivery }>(`rooms/${roomId}/deliver`, {

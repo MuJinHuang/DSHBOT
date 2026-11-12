@@ -123,9 +123,9 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 | N1-A1 | 成员编辑 | `PATCH /rooms/:id/members/:botId` 改 name/role/persona/expertise/instructions/agentPreset | ✅ 房间内「改」按钮；重名 409 |
 | N1-A2 | 成员移除 | `DELETE /rooms/:id/members/:botId`，移除后 @ 不到 | ✅ 二次确认；@ 旧名字只回提示 |
 | N1-A3 | 计划部分批准 | `POST /plan {action:'approve', itemIds:[...]}`，未选中卡片 `skipped` | ✅ 勾选后按件执行 |
-| N1-B1 | 文件浏览接口 | `GET /rooms/:id/files` 列工作区文件（名称/大小/时间，排除 .git） | ⬜ |
-| N1-B2 | 文件预览 | `GET /rooms/:id/file?path=` 返回文本；二进制/超大拒绝 | ⬜ |
-| N1-B3 | 交付页文件 tab | 交付面板加「文件」tab，Markdown 用 `parseBlocks` 渲染 | ⬜ |
+| N1-B1 | 文件浏览接口 | `GET /rooms/:id/files` 列工作区文件（名称/大小/时间，排除 .git） | ✅ 跳过 .git / node_modules，最多 500 条 |
+| N1-B2 | 文件预览 | `GET /rooms/:id/file?path=` 返回文本；二进制/超大拒绝 | ✅ 二进制 415，>200KB 413，越界 400 |
+| N1-B3 | 交付页文件 tab | 交付面板加「文件」tab，Markdown 用 `parseBlocks` 渲染 | ✅ 点开 .md 走 Markdown，其余等宽预览 |
 | N1-C1 | Bot 卡导出/导入 | `GET /bots/:id/export`；`POST /bots/import` | ⬜ |
 | N1-C2 | 团队模板 | `POST /bots/teams`；建房时一键拉入 | ⬜ |
 | N1-C3 | 房间模板 | `POST /rooms/:id/clone` 复制目标/验收/成员（不带消息） | ⬜ |

@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path'
 import { auditRecords, makeBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
 import type { Member, Room } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
+import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
 import { loadDb, messagesOf, roomsRoot, saveDb } from './store.js'
 import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan, snapshotsOf } from './turn.js'
 
@@ -673,6 +674,25 @@ export function createHandler(ctx: AgentContext) {
         }
         const dir = room.workspaceDir ?? join(roomsRoot(), roomId, 'work')
         send(res, 200, fileDiff(snapshotsOf(room), dir, file))
+        return
+      }
+
+      // ---- /rooms/:id/files（列工作区里的文件）----
+      if (parts.length === 3 && parts[2] === 'files' && method === 'GET') {
+        const dir = room.workspaceDir ?? join(roomsRoot(), roomId, 'work')
+        send(res, 200, listWorkspaceFiles(dir))
+        return
+      }
+
+      // ---- /rooms/:id/file（预览一个文本文件）----
+      if (parts.length === 3 && parts[2] === 'file' && method === 'GET') {
+        const dir = room.workspaceDir ?? join(roomsRoot(), roomId, 'work')
+        const preview = readWorkspaceFile(dir, url.searchParams.get('path') ?? '')
+        if (!preview.ok) {
+          send(res, preview.status, { error: preview.error })
+          return
+        }
+        send(res, 200, preview)
         return
       }
 

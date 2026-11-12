@@ -19,9 +19,11 @@ import {
   decidePlan,
   listBots,
   fetchDiff,
-  fetchAudit
+  fetchAudit,
+  listFiles,
+  readFile
 } from './api'
-import type { VersionEntry } from './api'
+import type { VersionEntry, WorkspaceFileEntry } from './api'
 import { buildMarkdown } from '@dshbot/core/markdown'
 import { BotLibraryView, MemberPanel } from './members'
 import type { BotCard } from './api'
@@ -647,11 +649,184 @@ function MessageRow(props: { message: Message; member?: Member }) {
   )
 }
 
+/** 把字节数压成 1.2 KB / 3.4 MB。 */
+function formatBytes(value: number): string {
+  if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + ' MB'
+  if (value >= 1024) return (value / 1024).toFixed(1) + ' KB'
+  return value + ' B'
+}
+
+/** 交付面板的「文件」tab：直接读工作区，Markdown 用现成的渲染器。 */
+function WorkspaceFilesPanel(props: { roomId: string }) {
+  const [files, setFiles] = useState<WorkspaceFileEntry[]>([])
+  const [truncated, setTruncated] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [openPath, setOpenPath] = useState<string | null>(null)
+  const [preview, setPreview] = useState<{ path: string; text: string } | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await listFiles(props.roomId)
+      setFiles(result.files)
+      setTruncated(result.truncated)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读取文件列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [props.roomId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const open = async (path: string): Promise<void> => {
+    if (openPath === path) {
+      setOpenPath(null)
+      setPreview(null)
+      setPreviewError(null)
+      return
+    }
+    setOpenPath(path)
+    setPreview(null)
+    setPreviewError(null)
+    setPreviewLoading(true)
+    try {
+      const file = await readFile(props.roomId, path)
+      setPreview({ path: file.path, text: file.text })
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : '读取失败')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  return h(
+    'div',
+    { style: { fontSize: 12 } },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
+      h('span', { style: { color: MUTED, fontSize: 11 } }, `${files.length} 个文件`),
+      truncated
+        ? h('span', { style: { color: '#e8a33d', fontSize: 11 } }, '（只列了前 500 个）')
+        : null,
+      h('div', { style: { flex: 1 } }),
+      h(
+        'button',
+        {
+          onClick: () => void load(),
+          style: {
+            padding: '2px 8px',
+            borderRadius: 5,
+            border: LINE,
+            background: 'transparent',
+            color: 'inherit',
+            fontSize: 11,
+            fontFamily: 'inherit',
+            cursor: 'pointer'
+          }
+        },
+        loading ? '读取中…' : '刷新'
+      )
+    ),
+    error === null ? null : h('div', { style: { color: '#e5484d', fontSize: 11 } }, error),
+    files.length === 0 && !loading
+      ? h('div', { style: { color: MUTED, fontSize: 11, padding: '8px 0' } }, '工作区还是空的')
+      : h(
+          'div',
+          { style: { maxHeight: 200, overflow: 'auto', border: LINE, borderRadius: 6 } },
+          ...files.map((file) =>
+            h(
+              'button',
+              {
+                key: file.path,
+                onClick: () => void open(file.path),
+                style: {
+                  display: 'flex',
+                  gap: 8,
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '4px 8px',
+                  border: 'none',
+                  borderBottom: LINE,
+                  background: openPath === file.path ? 'rgba(47,111,237,0.12)' : 'transparent',
+                  color: 'inherit',
+                  fontSize: 11,
+                  fontFamily: 'Consolas, monospace',
+                  cursor: 'pointer'
+                }
+              },
+              h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' } }, file.path),
+              h('span', { style: { color: MUTED, flexShrink: 0 } }, formatBytes(file.size)),
+              h(
+                'span',
+                { style: { color: MUTED, flexShrink: 0, width: 128, textAlign: 'right' } },
+                new Date(file.mtime).toLocaleString()
+              )
+            )
+          )
+        ),
+    openPath === null
+      ? null
+      : h(
+          'div',
+          { style: { marginTop: 8 } },
+          previewError === null
+            ? null
+            : h('div', { style: { color: '#e5484d', fontSize: 11, marginBottom: 6 } }, previewError),
+          previewLoading
+            ? h('div', { style: { color: MUTED, fontSize: 11 } }, '读取中…')
+            : preview === null
+              ? null
+              : /\.(md|markdown)$/i.test(preview.path)
+                ? h(
+                    'div',
+                    {
+                      style: {
+                        maxHeight: 360,
+                        overflow: 'auto',
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        background: 'rgba(128,128,128,0.06)',
+                        fontSize: 12
+                      }
+                    },
+                    h(MarkdownText, { text: preview.text })
+                  )
+                : h(
+                    'pre',
+                    {
+                      style: {
+                        margin: 0,
+                        maxHeight: 360,
+                        overflow: 'auto',
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        background: 'rgba(0,0,0,0.28)',
+                        fontFamily: 'Consolas, monospace',
+                        fontSize: 11,
+                        lineHeight: 1.5,
+                        whiteSpace: 'pre'
+                      }
+                    },
+                    preview.text
+                  )
+        )
+  )
+}
+
 /** 交付结论面板。 */
 function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
   const { delivery } = props
   const passed = delivery.checks.filter((c) => c.verdict === 'pass').length
   const icon = (v: string) => (v === 'pass' ? '✅' : v === 'fail' ? '❌' : '❓')
+  const [tab, setTab] = useState<'checks' | 'files'>('checks')
   const [openFile, setOpenFile] = useState<string | null>(null)
   const [openDiff, setOpenDiff] = useState<{ stat: string; diff: string } | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
@@ -674,6 +849,25 @@ function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
     }
   }
 
+  const tabButton = (label: string, value: 'checks' | 'files') =>
+    h(
+      'button',
+      {
+        onClick: () => setTab(value),
+        style: {
+          padding: '2px 10px',
+          borderRadius: 5,
+          border: tab === value ? 'none' : LINE,
+          background: tab === value ? 'rgba(128,128,128,0.18)' : 'transparent',
+          color: 'inherit',
+          fontSize: 11,
+          fontFamily: 'inherit',
+          cursor: 'pointer'
+        }
+      },
+      label
+    )
+
   return h(
     'div',
     {
@@ -688,88 +882,95 @@ function DeliveryPanel(props: { delivery: Delivery; roomId: string }) {
     },
     h(
       'div',
-      { style: { display: 'flex', alignItems: 'center', marginBottom: 8 } },
+      { style: { display: 'flex', alignItems: 'center', marginBottom: 6 } },
       h('span', { style: { fontWeight: 600 } }, '交付结论'),
       h('span', { style: { marginLeft: 8, color: passed === delivery.checks.length ? '#2f9e44' : '#e8a33d' } },
         `${passed}/${delivery.checks.length} 通过`),
       h('span', { style: { marginLeft: 'auto', color: MUTED, fontSize: 11 } },
         new Date(delivery.at).toLocaleTimeString())
     ),
-    ...delivery.checks.map((check, index) =>
-      h(
-        'div',
-        { key: index, style: { display: 'flex', gap: 6, marginBottom: 4, lineHeight: 1.5 } },
-        h('span', {}, icon(check.verdict)),
-        h(
+    h('div', { style: { display: 'flex', gap: 6, marginBottom: 8 } }, tabButton('结论', 'checks'), tabButton('文件', 'files')),
+    tab === 'files'
+      ? h(WorkspaceFilesPanel, { roomId: props.roomId })
+      : h(
           'div',
           {},
-          h('div', {}, check.point),
-          h('div', { style: { color: MUTED, fontSize: 11 } }, check.reason)
-        )
-      )
-    ),
-    h(
-      'div',
-      { style: { color: MUTED, fontSize: 11, marginTop: 8, borderTop: LINE, paddingTop: 6 } },
-      `变更文件 ${delivery.changedFiles.length} 个` +
-        `　·　本次验收花费 ${formatTokens(delivery.tokensUsed)}`
-    ),
-    // 全是文字判定又没改文件：提醒一句，否则"说做了"就等于"做了"
-    delivery.changedFiles.length === 0 &&
-    !delivery.checks.some((check) => /^(file|cmd):/.test(check.point))
-      ? h(
-          'div',
-          { style: { color: '#e8a33d', fontSize: 11, marginTop: 6, lineHeight: 1.6 } },
-          '这次验收全是文字判定，工作区没有变更——Bot 说"写好了"但可能没真写。' +
-            '要文件就用 file:路径 当验收条件。'
-        )
-      : null,
-    delivery.changedFiles.length === 0
-      ? null
-      : h(
-          'div',
-          { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 } },
-          ...delivery.changedFiles.slice(0, 8).map((file) =>
+          ...delivery.checks.map((check, index) =>
             h(
-              'button',
-              {
-                key: file,
-                onClick: () => void onOpenFile(file),
-                style: {
-                  padding: '2px 8px',
-                  borderRadius: 5,
-                  border: LINE,
-                  background: openFile === file ? 'rgba(47,111,237,0.16)' : 'transparent',
-                  color: 'inherit',
-                  fontSize: 11,
-                  fontFamily: 'Consolas, monospace',
-                  cursor: 'pointer'
-                }
-              },
-              file
+              'div',
+              { key: index, style: { display: 'flex', gap: 6, marginBottom: 4, lineHeight: 1.5 } },
+              h('span', {}, icon(check.verdict)),
+              h(
+                'div',
+                {},
+                h('div', {}, check.point),
+                h('div', { style: { color: MUTED, fontSize: 11 } }, check.reason)
+              )
             )
-          )
-        ),
-    openFile === null
-      ? null
-      : h(
-          'pre',
-          {
-            style: {
-              marginTop: 8,
-              marginBottom: 0,
-              padding: '8px 10px',
-              borderRadius: 6,
-              background: 'rgba(0,0,0,0.28)',
-              fontFamily: 'Consolas, monospace',
-              fontSize: 11,
-              lineHeight: 1.5,
-              maxHeight: 260,
-              overflow: 'auto',
-              whiteSpace: 'pre'
-            }
-          },
-          diffLoading ? '读取中…' : openDiff?.diff || '（没有差异，或该文件不在版本里）'
+          ),
+          h(
+            'div',
+            { style: { color: MUTED, fontSize: 11, marginTop: 8, borderTop: LINE, paddingTop: 6 } },
+            `变更文件 ${delivery.changedFiles.length} 个` +
+              `　·　本次验收花费 ${formatTokens(delivery.tokensUsed)}`
+          ),
+          // 全是文字判定又没改文件：提醒一句，否则"说做了"就等于"做了"
+          delivery.changedFiles.length === 0 &&
+          !delivery.checks.some((check) => /^(file|cmd):/.test(check.point))
+            ? h(
+                'div',
+                { style: { color: '#e8a33d', fontSize: 11, marginTop: 6, lineHeight: 1.6 } },
+                '这次验收全是文字判定，工作区没有变更——Bot 说"写好了"但可能没真写。' +
+                  '要文件就用 file:路径 当验收条件。'
+              )
+            : null,
+          delivery.changedFiles.length === 0
+            ? null
+            : h(
+                'div',
+                { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 } },
+                ...delivery.changedFiles.slice(0, 8).map((file) =>
+                  h(
+                    'button',
+                    {
+                      key: file,
+                      onClick: () => void onOpenFile(file),
+                      style: {
+                        padding: '2px 8px',
+                        borderRadius: 5,
+                        border: LINE,
+                        background: openFile === file ? 'rgba(47,111,237,0.16)' : 'transparent',
+                        color: 'inherit',
+                        fontSize: 11,
+                        fontFamily: 'Consolas, monospace',
+                        cursor: 'pointer'
+                      }
+                    },
+                    file
+                  )
+                )
+              ),
+          openFile === null
+            ? null
+            : h(
+                'pre',
+                {
+                  style: {
+                    marginTop: 8,
+                    marginBottom: 0,
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    background: 'rgba(0,0,0,0.28)',
+                    fontFamily: 'Consolas, monospace',
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                    maxHeight: 260,
+                    overflow: 'auto',
+                    whiteSpace: 'pre'
+                  }
+                },
+                diffLoading ? '读取中…' : openDiff?.diff || '（没有差异，或该文件不在版本里）'
+              )
         )
   )
 }
