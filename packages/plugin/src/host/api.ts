@@ -435,6 +435,85 @@ export function createHandler(ctx: AgentContext) {
         return
       }
 
+      // ---- /rooms/demo（首次使用：一键建一个能直接跑的示例房间）----
+      if (parts.length === 2 && parts[1] === 'demo' && method === 'POST') {
+        const demoMember = (
+          name: string,
+          avatar: string,
+          role: 'host' | 'worker',
+          expertise: string,
+          persona: string,
+          instructions: string
+        ): Member => ({
+          botId: newId('bot'),
+          name,
+          role,
+          avatar,
+          status: 'idle',
+          tokensUsed: 0,
+          expertise,
+          persona,
+          instructions
+        })
+
+        const seed: Member[] = [
+          demoMember(
+            '阿岚',
+            '🧭',
+            'host',
+            '拆解与统筹',
+            '技术项目经理，擅长拆解目标、识别风险、把活分给对的人。',
+            '派活时写清交付物、验收口径和先后依赖；不要自己深挖细节。'
+          ),
+          demoMember(
+            '老周',
+            '🛠',
+            'worker',
+            '电源与热设计',
+            '资深硬件工程师，做过十年电源与热设计，习惯先算最坏情况。',
+            '先给结论，再列风险与验证方法；参数带单位和容差。'
+          ),
+          demoMember(
+            '小柯',
+            '📝',
+            'worker',
+            '技术写作',
+            '技术文档编辑，擅长把工程材料写成非技术读者也能看懂的说明。',
+            '先一句话总评，再分章节；关键参数用表格，不编造数据。'
+          )
+        ]
+
+        const room = buildRoom(
+          {
+            name: '示例：电源模块交付',
+            goal: '为一块 5V/3A 供电模块产出开发流程，并写成 docs/示例交付.md',
+            acceptance: [
+              'file:docs/示例交付.md',
+              '文档覆盖电源、结构与散热、认证三部分'
+            ],
+            mode: 'confirm'
+          },
+          seed
+        )
+        if ('error' in room) {
+          send(res, 400, { error: room.error })
+          return
+        }
+
+        const db = loadDb()
+        db.rooms.unshift(room)
+        saveDb(db)
+        const note = makeMessage(
+          room.id,
+          'system',
+          'system',
+          '示例房间已建好：说一句话，总管会出计划；批准后执行。产物写到 docs/示例交付.md，验收由机器判。'
+        )
+        appendMessages(room.id, [note])
+        send(res, 201, { room, messages: [note] })
+        return
+      }
+
       const roomId = parts[1] ?? ''
       const room = loadDb().rooms.find((r) => r.id === roomId)
       if (room === undefined) {

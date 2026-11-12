@@ -58,6 +58,15 @@ export async function createRoom(input: NewRoomInput): Promise<Room> {
   return data.room
 }
 
+/** 建一个可以直接跑的示例房间（首次使用引导）。 */
+export async function createDemoRoom(): Promise<Room> {
+  const data = await request<{ room: Room }>('rooms/demo', {
+    method: 'POST',
+    body: '{}'
+  })
+  return data.room
+}
+
 /** 读某个房间的消息。 */
 export async function listMessages(roomId: string): Promise<Message[]> {
   const data = await request<{ messages: Message[] }>(`rooms/${roomId}/messages`)

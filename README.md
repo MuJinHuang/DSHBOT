@@ -47,6 +47,7 @@ pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 | 能力 | 说明 |
 |---|---|
 | 房间与验收 | 目标、多条验收；`file:` / `cmd:` 机器判定；全是文字验收时给 warning |
+| 首次使用 | 一键示例房间：三个角色 + 机器可判验收，装上就能跑 |
 | 多 Bot 协作 | 总管拆活、按 `@名字` 派活、任务卡生命周期、handoff 结论摘要 |
 | 计划确认 | confirm / auto 两种模式；**部分批准**，未选中的任务卡标 `skipped` |
 | Bot 库 | 岗位、专长、输出规范、工具集（agent preset）；导出 / 导入 JSON |

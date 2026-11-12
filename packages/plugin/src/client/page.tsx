@@ -4,6 +4,7 @@ import { acceptanceWarning, formatTokens } from '@dshbot/core'
 import type { Delivery, Member, Message, Room } from '@dshbot/core'
 import {
   createRoom,
+  createDemoRoom,
   deleteRoom,
   deliver,
   listMessages,
@@ -1982,6 +1983,7 @@ export function RoomsPage() {
   const [bots, setBots] = useState<BotCard[]>([])
   const [botId, setBotId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [demoBusy, setDemoBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -2315,6 +2317,23 @@ export function RoomsPage() {
     }
   }, [selectedId])
 
+  // 首次使用：一键示例房间，先把"能跑起来"这件事解决
+  const createDemo = useCallback(async () => {
+    if (demoBusy) return
+    setDemoBusy(true)
+    setSendError(null)
+    try {
+      const room = await createDemoRoom()
+      setRooms((list) => [room, ...list.filter((item) => item.id !== room.id)])
+      setSelectedId(room.id)
+      setCreating(false)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : '创建示例房间失败')
+    } finally {
+      setDemoBusy(false)
+    }
+  }, [demoBusy])
+
   // 删房间
   const removeRoom = useCallback(async () => {
     if (selectedId === null) return
@@ -2596,10 +2615,55 @@ export function RoomsPage() {
                   { style: { display: 'grid', placeItems: 'center', height: '100%', color: MUTED } },
                   h(
                     'div',
-                    { style: { textAlign: 'center', maxWidth: 380, fontSize: 13, lineHeight: 1.8 } },
+                    { style: { textAlign: 'center', maxWidth: 420, fontSize: 13, lineHeight: 1.8 } },
                     '还没有房间',
                     h('br'),
-                    '建一个房间，拉几个 Bot 进来，说一句话，它们分头干活。'
+                    '建一个房间，拉几个 Bot 进来，说一句话，它们分头干活。',
+                    h(
+                      'div',
+                      { style: { display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 } },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          onClick: () => {
+                            setCreating(true)
+                            setSelectedId(null)
+                          },
+                          style: {
+                            padding: '7px 14px',
+                            borderRadius: 6,
+                            border: LINE,
+                            background: 'transparent',
+                            color: 'inherit',
+                            fontSize: 12,
+                            fontFamily: 'inherit',
+                            cursor: 'pointer'
+                          }
+                        },
+                        '＋ 新建房间'
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          onClick: () => void createDemo(),
+                          disabled: demoBusy,
+                          style: {
+                            padding: '7px 14px',
+                            borderRadius: 6,
+                            border: 'none',
+                            background: '#2f6fed',
+                            color: '#fff',
+                            fontSize: 12,
+                            fontFamily: 'inherit',
+                            cursor: demoBusy ? 'default' : 'pointer',
+                            opacity: demoBusy ? 0.6 : 1
+                          }
+                        },
+                        demoBusy ? '创建中…' : '创建示例房间'
+                      )
+                    )
                   )
                 )
     ),
