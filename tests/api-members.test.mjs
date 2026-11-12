@@ -168,6 +168,26 @@ function planMessages(roomId) {
   ]
 }
 
+test('E2 建房：全是文字验收返回 warning，不是错误', async () => {
+  const textOnly = await api.api('rooms', {
+    method: 'POST',
+    body: JSON.stringify({ name: '文字验收房', goal: 'g', acceptance: ['写得好', '覆盖全'] })
+  })
+  assert.equal(textOnly.status, 201, textOnly.text)
+  assert.match(textOnly.data.warning, /file:/)
+
+  const machine = await api.api('rooms', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: '机器验收房',
+      goal: 'g',
+      acceptance: ['file:README.md', '写得好']
+    })
+  })
+  assert.equal(machine.status, 201, machine.text)
+  assert.equal(machine.data.warning, undefined)
+})
+
 test('A3 部分批准：只跑选中的，其余卡片标 skipped', async () => {
   const roomId = 'room_plan_partial'
   seedDb(dataDir, {

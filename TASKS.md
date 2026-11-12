@@ -132,10 +132,10 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 | N1-D1 | 消息分页 | `GET /messages?limit=&before=`；界面滚到顶加载更多 | ✅ 默认每页 80，`hasMore` 控制按钮 |
 | N1-D2 | 数据分片 | 消息按房间分文件，`rooms.json` 只存房间 | ✅ 旧数据自动迁移（按 id 去重），追加不重写 |
 | N1-D3 | 审计界面 | 房间页「审计」tab：按类型筛选、看单条工具调用 | ✅ 消息流/审计切换；JSONL 导出保留 |
-| N1-E1 | 回归脚本 | `pnpm drill`：自动建房、跑任务、断言验收通过 | ⬜ |
-| N1-E2 | 谓词覆盖检查 | 验收全是文本类时返回 warning（不是错误） | ⬜ |
-| N1-E3 | 数字自检提示 | 总管/执行者提示词要求给算式与复算结果 | ⬜ |
-| N1-E4 | CI 扩展 | `pnpm check` 里带一次 drill（mock） | ⬜ |
+| N1-E1 | 回归脚本 | `pnpm drill`：自动建房、跑任务、断言验收通过 | ✅ 默认假宿主 0 token；`--port` 打真实实例 |
+| N1-E2 | 谓词覆盖检查 | 验收全是文本类时返回 warning（不是错误） | ✅ core `acceptanceWarning` + 建房响应 + 界面黄字 |
+| N1-E3 | 数字自检提示 | 总管/执行者提示词要求给算式与复算结果 | ✅ 上下文规则里加一条，单测钉住 |
+| N1-E4 | CI 扩展 | `pnpm check` 里带一次 drill（mock） | ✅ `tests/drill.test.mjs` 随 `pnpm check` 跑 |
 
 ---
 

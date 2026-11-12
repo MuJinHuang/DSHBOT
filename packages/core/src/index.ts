@@ -17,6 +17,7 @@ export {
   parseChecks,
   parseCheckSpec,
   normalizeAcceptanceLine,
+  acceptanceWarning,
   parseGitStatus
 } from './parse.js'
 export type { CheckSpec } from './parse.js'

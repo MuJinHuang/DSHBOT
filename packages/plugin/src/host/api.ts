@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { auditRecords, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
+import { acceptanceWarning, auditRecords, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
 import type { BotDefinition, Member, Room, TeamTemplate } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
@@ -427,7 +427,8 @@ export function createHandler(ctx: AgentContext) {
           }
           db.rooms.unshift(room)
           saveDb(db)
-          send(res, 201, { room })
+          const warning = acceptanceWarning(room.acceptance)
+          send(res, 201, { room, ...(warning === undefined ? {} : { warning }) })
           return
         }
         send(res, 405, { error: 'method not allowed' })
@@ -500,7 +501,8 @@ export function createHandler(ctx: AgentContext) {
 
           target.updatedAt = nowIso()
           saveDb(db)
-          send(res, 200, { room: target })
+          const warning = acceptanceWarning(target.acceptance)
+          send(res, 200, { room: target, ...(warning === undefined ? {} : { warning }) })
           return
         }
 

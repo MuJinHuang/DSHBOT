@@ -46,8 +46,9 @@
 | 每个 Bot 可选工具集（agent preset，如 minimal 禁文件读写） | ✅ |
 | 软写锁：任务里声明的文件冲突会提醒 | ✅ |
 | 房间状态实时推送（SSE） | ✅ 逐条工具事件仍等整轮 |
-| 单元测试 | ✅ `pnpm check` = 类型检查 + 47 个用例 |
-| 房间级审批卡、硬预算熔断、审计导出 | ⬜ 见 TASKS（版本链、diff、回滚已完成） |
+| 单元测试 | ✅ `pnpm check` = 类型检查 + 101 个用例（含一次 drill） |
+| 回归演练 | ✅ `pnpm drill`：建房→派活→产出文件→验收通过（默认 0 token） |
+| 房间级审批卡、硬写锁 | ⬜ 受 DSH 接口限制，见 TASKS（软写锁、预算熔断已完成） |
 
 ## 结构
 
@@ -81,6 +82,8 @@ spike/     验证记录、截图与取证脚本
 pnpm install
 pnpm build        # 产出 packages/plugin/lib/{index,client}.js 与 cli/bin
 pnpm typecheck
+pnpm drill        # 建房→派活→产出→验收，一条命令演一遍（默认不花钱）
+pnpm drill -- --port 54873   # 打真实开发实例（会花 token，需先启动）
 
 # 一条命令装进 DSH（构建 + 类型检查 + 链接 + 补丁层，幂等）
 pnpm install:profile

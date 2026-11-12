@@ -171,6 +171,25 @@ export function parseCheckSpec(line: string): CheckSpec {
 }
 
 /**
+ * 验收标准全是文字类时给一句提醒（不是错误）。
+ *
+ * 文字标准也能用；但要文件、要命令通过，就该写成 `file:` / `cmd:`——
+ * 否则模型只能判"文字里有没有提到"，判不了"事情有没有做成"。
+ *
+ * @param lines - 验收标准
+ * @returns 需要提醒时返回一句话，否则 undefined
+ */
+export function acceptanceWarning(lines: string[]): string | undefined {
+  const clean = lines.map((line) => line.trim()).filter((line) => line !== '')
+  if (clean.length === 0) return undefined
+  if (clean.some((line) => parseCheckSpec(line).kind !== 'text')) return undefined
+  return (
+    '这些验收标准全是文字判定：模型只能看"文字里有没有提到"，不能证明"事情做成了"。' +
+    '建议至少有一条写成 file:路径 或 cmd:命令，让机器来判。'
+  )
+}
+
+/**
  * 解析 `git status --porcelain` 的输出，取出变更路径。
  *
  * porcelain 每行是 `XY path`：前两位是状态码，第 3 位起是路径。

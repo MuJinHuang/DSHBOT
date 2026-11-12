@@ -1,6 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { formatTokens } from '@dshbot/core'
+import { acceptanceWarning, formatTokens } from '@dshbot/core'
 import type { Delivery, Member, Message, Room } from '@dshbot/core'
 import {
   addMember,
@@ -1611,6 +1611,22 @@ function RoomDetail(props: {
       { style: { margin: '0 0 18px', paddingLeft: 18, fontSize: 13, lineHeight: 1.8 } },
       ...room.acceptance.map((item, index) => h('li', { key: index }, item))
     ),
+
+    acceptanceWarning(room.acceptance) === undefined
+      ? null
+      : h(
+          'div',
+          {
+            style: {
+              color: '#e8a33d',
+              fontSize: 11,
+              lineHeight: 1.6,
+              marginTop: -10,
+              marginBottom: 16
+            }
+          },
+          acceptanceWarning(room.acceptance)
+        ),
 
     room.pendingPlan === undefined
       ? null
