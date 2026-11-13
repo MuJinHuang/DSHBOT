@@ -8,7 +8,7 @@
 
 ```powershell
 pnpm install
-pnpm check          # lint + 类型 + 构建 + 143 个用例
+pnpm check          # lint + 类型 + 构建 + 144 个用例
 pnpm test:coverage  # 覆盖率门槛：lines ≥65 / branches ≥60 / functions ≥65
 pnpm drill          # 建房→派活→产出→验收，默认假宿主 0 token
 ```
@@ -27,11 +27,35 @@ pnpm smoke:ui -- --browser "C:\path\to\msedge.exe" --keep
 
 1. 用临时数据目录起一个隔离 DSH（不会碰桌面端数据）；
 2. 用无头浏览器打开页面；
-3. 点开空状态 → 创建示例房间 → 搜索 → Bot 库；
-4. 截图 `spike/ui-smoke.png`；
+3. 点开空状态 → 创建示例房间 → 搜索 → Bot 库（含模型下拉）；
+4. 截图 `spike/ui-smoke.png` 和 `spike/smoke-1..4.png`；
 5. 不调用模型（不花钱）。
 
 前提：`dsh` 可用（或设 `DSHBOT_DSH_CLI`），profile 已装本插件。
+
+## 真实模型 DAG 验收
+
+```powershell
+# 先起一个隔离实例
+$env:DSHBOT_DATA_DIR="$env:TEMP\dshbot-live-dag"
+dsh --profile dshbot-dev --port 54873 --no-open
+
+# 另一个终端：会花 token
+node spike/live-dag-check.mjs --port 54873
+```
+
+它会建总管 + 两个执行者，强制 `小柯 → 老周` 依赖，验证 `a.md` / `b.md` 落盘和验收通过。
+2026-11-13 的真实结果见 `docs/internal/reports/真实DAG验收-2026-11-13.md`。
+
+## demo GIF
+
+`pnpm smoke:ui` 生成四帧后：
+
+```powershell
+python scripts/make-demo-gif.py
+```
+
+输出 `docs/assets/demo.gif`（README 和文档站首屏使用）。
 
 ## 目录
 

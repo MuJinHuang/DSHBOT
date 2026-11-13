@@ -10,7 +10,7 @@
 
 ```powershell
 pnpm install
-pnpm check        # lint + 类型检查 + 构建 + 143 个用例
+pnpm check        # lint + 类型检查 + 构建 + 144 个用例
 pnpm test:coverage # 覆盖率门槛（lines ≥65%，branches ≥60%，functions ≥65%）
 pnpm drill        # 建房→派活→产出→验收，默认假宿主、0 token
 pnpm smoke:ui     # 真实 DSH + 无头浏览器的 UI 冒烟（需要本机 DSH）
@@ -20,7 +20,7 @@ pnpm docs:build   # 构建文档站
 ## 改代码前
 
 1. 读 [STATE.md](STATE.md)（当前状态与约束）与 [TASKS.md](TASKS.md)（状态以代码为准）；
-2. 架构与历史决策见 [M1-技术方案.md](M1-技术方案.md)、[下一阶段任务.md](下一阶段任务.md)；
+2. 架构与历史决策见 [M1-技术方案.md](docs/design/M1-技术方案.md)、[下一阶段任务.md](docs/internal/roadmap/下一阶段任务.md)；
 3. **不要重启正在使用的 DSH**——插件跑在 DSH 进程里。开发验证用独立 profile：
 
 ```powershell

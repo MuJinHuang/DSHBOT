@@ -35,7 +35,7 @@ const created = await json('/dshbot/api/rooms', {
     name: '重构 formatTokens',
     goal: '把 page.tsx 与 markdown.ts 里重复的 formatTokens 收进 core 的 format.ts 并导出，两处改为复用，补单测',
     acceptance: ACCEPTANCE,
-    workspaceDir: 'D:\\Desktop\\DSBOT',
+    workspaceDir: process.env.DSHBOT_WORKSPACE ?? process.cwd(),
     mode: 'auto'
   })
 })

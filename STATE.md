@@ -1,9 +1,9 @@
 # 项目状态快照
 
 > 更新于 2026-11-12。这是**可交接的状态快照**：接手的人（或下一次会话）从这份文档就能继续。
-> **下一步要做什么，看 [下一阶段任务.md](下一阶段任务.md)**（含七轮实测的结论与 N1 任务清单）。
-> 需求见 [DSHBot-需求规格-v1.1.md](DSHBot-需求规格-v1.1.md)，任务清单见 [TASKS.md](TASKS.md)，原理见 [DSHBot知识手册.docx](DSHBot知识手册.docx)。
-> **开新会话**：仓库根的 AGENTS.md 会被 DSH 自动加载，见 [新会话怎么接.md](新会话怎么接.md)。
+> **下一步要做什么，看 [下一阶段任务.md](docs/internal/roadmap/下一阶段任务.md)**（含七轮实测的结论与 N1 任务清单）。
+> 需求见 [DSHBot-需求规格-v1.1.md](docs/internal/requirements/DSHBot-需求规格-v1.1.md)，任务清单见 [TASKS.md](TASKS.md)，原理见 [DSHBot知识手册.docx](docs/internal/archive/DSHBot知识手册.docx)。
+> **开新会话**：仓库根的 AGENTS.md 会被 DSH 自动加载，见 [新会话怎么接.md](docs/internal/handoff/新会话怎么接.md)。
 
 ---
 
@@ -62,9 +62,9 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 - **复用**：房间「另存为」复制目标/验收/成员（不带消息）；
 - **护栏**：预算熔断、运行超时可配、启动自愈、停止按钮、验收全是文字时给 warning。
 
-规模：70+ 次提交、26 个源文件 / 9001 行、143 个单测、`pnpm check` 一键校验。
+规模：76+ 次提交、26 个源文件 / 9386 行、144 个单测、`pnpm check` 一键校验。
 
-**还不能**：房间内审批卡、真写锁、逐条工具事件推流（受 DSH 接口限制，见 [下一阶段任务.md](下一阶段任务.md) 第五节）。
+**还不能**：房间内审批卡、真写锁、逐条工具事件推流（受 DSH 接口限制，见 [下一阶段任务.md](docs/internal/roadmap/下一阶段任务.md) 第五节）。
 
 ## 2. 进度
 
@@ -74,7 +74,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | M1 多 Bot | ✅（M1-5 软写锁；硬锁受限于 DSH） |
 | M2 插手与接管 | ✅（审批卡受限于 DSH） |
 | M3 交付 | ✅ |
-| 工程化 | ✅ 143 测试 · CI · 自愈 · 熔断 · 审计 · drill |
+| 工程化 | ✅ 144 测试 · CI · 自愈 · 熔断 · 审计 · drill |
 | 下一阶段 N1 | ✅ 五组全部完成（A 运维 / B 产物 / C 复用 / D 规模 / E 护栏），见 [TASKS.md](TASKS.md) |
 | S0–M3 明细 | 见 [TASKS.md](TASKS.md)——状态列以代码为准，改完代码立刻回去改那里 |
 
@@ -234,7 +234,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | README | ✅ | 中文重写 + 英文版；4 张脱敏截图；安装/限制/隐私/开发完整 |
 | 社区文件 | ✅ | SECURITY / CONTRIBUTING / CODE_OF_CONDUCT / issue+PR 模板 / CHANGELOG |
 | 真问题修复 | ✅ | 预算与模式可在界面改；上下文预算保任务；空闲 SSE 不再反复拉消息 |
-| 测试 | ✅ | 143 个用例（新增发布形态检查） |
+| 测试 | ✅ | 144 个用例（新增发布形态检查） |
 
 ### 第十六批（P1 体验与工程）
 
@@ -256,6 +256,18 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | 真实 UI 冒烟 | ✅ | `pnpm smoke:ui`：隔离 DSH + 无头浏览器，空状态/示例/搜索/Bot 库，截图 `spike/ui-smoke.png` |
 | 文档站 | ✅ | `docs-site/` + `scripts/build-docs.mjs` → `site/`；GitHub Pages workflow |
 
+### 第十八批（全面优化）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 仓库门面 | ✅ | 需求/验证/交接/归档文档移入 `docs/internal/`；根目录只留用户与贡献入口 |
+| DAG 多依赖 | ✅ | 计划卡依赖改成可多选 chips；客户端预检环/缺失 |
+| 单件重跑 | ✅ | `POST /rooms/:id/retry`；旧卡 `superseded`，新卡重新执行 |
+| 模型校验/推理强度 | ✅ | 保存前对照 `/models`；`reasoningEffort` 进 API/UI/selectModel |
+| UI 冒烟/GIF | ✅ | 冒烟覆盖模型下拉；四帧截图 → `docs/assets/demo.gif` |
+| 真实模型 DAG | ✅ | 2026-11-13 真实实例 A→B 通过，文件 `a.md`/`b.md` 落盘，验收 2/2 |
+| 发布包验证 | ✅ | 本地 zip/tgz + 新建 profile 安装，`/health` 与 `/models` 正常 |
+
 ## 3. 代码地图
 
 ```
@@ -273,9 +285,12 @@ packages/
   cli/             dsh-bot 骨架命令
 scripts/install.mjs  构建 → 类型检查 → link: 进 profile → 同步 bundle 层 / 清理旧补丁
 scripts/build-docs.mjs  docs-site → site（静态站，无框架）
-tests/           143 个用例：纯函数 + 真 HTTP 处理器 + DAG/模型 + drill + 发布形态
-spike/           冒烟与取证工具（CDP 截图、drill.mjs、ui-smoke.mjs）
+scripts/check-doc-links.mjs  文档相对链接检查
+scripts/stage-release.mjs  跨平台 zip/tgz/SHA256SUMS
+tests/           144 个用例：纯函数 + 真 HTTP 处理器 + DAG/模型 + drill + 发布形态
+spike/           冒烟与取证工具（CDP 截图、drill.mjs、ui-smoke.mjs、live-dag-check.mjs）
 docs-site/       文档站 Markdown 源 + 样式
+docs/internal/   需求/验证/交接/归档（非用户文档）
 ```
 
 ## 4. 环境事实
@@ -295,7 +310,7 @@ docs-site/       文档站 Markdown 源 + 样式
 
 ## 5. 已验证的技术结论（别重走）
 
-1. **插件形态**：第三方包注册 `main` 全屏页（`ctx.slots.register({ name:'main', key })`）+ `sidebar.panellist` 入口；客户端 bundle 必须包成 `window.__ModuleLoader__.load({ id, factory })`。详见 [T2-验证报告.md](T2-验证报告.md)。
+1. **插件形态**：第三方包注册 `main` 全屏页（`ctx.slots.register({ name:'main', key })`）+ `sidebar.panellist` 入口；客户端 bundle 必须包成 `window.__ModuleLoader__.load({ id, factory })`。详见 [T2-验证报告.md](docs/internal/reports/T2-验证报告.md)。
 2. **前后端通信**：`ctx.webServer.register({ kind:'prefix', path, handler })` + 普通 `node:http`；浏览器用**文档相对 URL**（`dshbot/api/...`，无前导斜杠），Electron 的 `dsh://app/` 协议会转发给本地 webserver。
 3. **构建**：esbuild 出 CJS，banner/footer 包成 loader 形状；`react` 等 11 个模块 external，绝不能打进第二份 React。
 4. **Run 不能用子进程**：`dsh headless` 拿不到账号 token——`resolveToken` 要求 `destination.origin === inferenceOrigin`，裸 CLI 对不上。详见 [spike/x1-findings.md](spike/x1-findings.md)。
@@ -366,9 +381,9 @@ N1 已收口（A–E 全部完成，128 个用例，真实 drill 跑通）。接
 
 | 文件 | 内容 |
 |---|---|
-| [DSHBot-需求规格-v1.1.md](DSHBot-需求规格-v1.1.md) | 需求基线（房间模型、工位、审批、里程碑） |
+| [DSHBot-需求规格-v1.1.md](docs/internal/requirements/DSHBot-需求规格-v1.1.md) | 需求基线（房间模型、工位、审批、里程碑） |
 | [TASKS.md](TASKS.md) | 任务清单与状态 |
-| [T2-验证报告.md](T2-验证报告.md) | 插件页面注册 API 取证 |
+| [T2-验证报告.md](docs/internal/reports/T2-验证报告.md) | 插件页面注册 API 取证 |
 | [INSTALL.md](INSTALL.md) | 安装与排错 |
 | [ENVIRONMENT.md](ENVIRONMENT.md) | 开发环境清单 |
 | [spike/x1-findings.md](spike/x1-findings.md) | 为什么不能用子进程 |

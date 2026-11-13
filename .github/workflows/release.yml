@@ -22,28 +22,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm docs:build
 
       - name: Verify tag matches package version
         run: |
           node -e "const v=require('./packages/plugin/package.json').version; const t=process.env.GITHUB_REF_NAME.replace(/^v/,''); if (v!==t) { console.error('tag '+t+' != package version '+v); process.exit(1) }"
 
-      - name: Stage plugin folder and tarball
-        run: |
-          set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          STAGE="dist/dshbot-plugin-${VERSION}"
-          mkdir -p "$STAGE"
-          cp -R packages/plugin/lib "$STAGE/lib"
-          cp packages/plugin/package.json packages/plugin/cordis.patch.yml packages/plugin/icon.svg "$STAGE/"
-          cp -R packages/plugin/locale "$STAGE/locale"
-          cp packages/plugin/README.md "$STAGE/README.md"
-          cp LICENSE CHANGELOG.md "$STAGE/"
-          (cd dist && zip -qr "dshbot-plugin-${VERSION}.zip" "dshbot-plugin-${VERSION}")
-          cp LICENSE packages/plugin/LICENSE
-          (cd packages/plugin && pnpm pack --pack-destination ../../dist)
-          rm packages/plugin/LICENSE
-          sha256sum dist/*.zip dist/*.tgz > dist/SHA256SUMS.txt
-          ls -lh dist
+      - name: Stage plugin folder, zip, tarball and checksums
+        run: pnpm stage:release
 
       - name: Create GitHub release
         env:

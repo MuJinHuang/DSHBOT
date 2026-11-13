@@ -1,12 +1,16 @@
 # DSHBot Rooms
 
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Node](https://img.shields.io/badge/node-%E2%89%A522-3c873a)
+![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.5-5b8cff)
+
 **在 DSH 里开一个房间，拉几个有名字、有岗位的 Bot 同事进来，说一句话，它们分头干活。**
 
 你只需要做三件事：定目标、批计划、验产物。其余交给房间。
 
-> English: [README.en.md](README.en.md) · 当前版本 **v0.2.0** · 100+ 个用例 · 运行时**零第三方依赖**
+> English: [README.en.md](README.en.md) · 当前版本 **v0.2.0** · 144 个用例 · 运行时**零第三方依赖**
 
-![房间页：计划确认与多 Bot 协作](docs/assets/rooms.png)
+![DSHBot 演示：空房 → 示例房间 → 搜索 → Bot 库](docs/assets/demo.gif)
 
 ## 为什么不是"再套一层聊天框"
 
@@ -51,8 +55,8 @@ pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 | 首次使用 | 一键示例房间：三个角色 + 机器可判验收，装上就能跑 |
 | 多 Bot 协作 | 总管拆活、按 `@名字` 派活、任务卡生命周期、handoff 结论摘要 |
 | 计划确认 | confirm / auto 两种模式；**部分批准**，未选中的任务卡标 `skipped` |
-| 计划依赖（DAG） | 总管用 `[依赖:@名字]` 标注；按层执行，上游结论自动注入下游；环/缺失依赖拒绝 |
-| 每 Bot 模型 | Bot 库和房间内可选；开跑前装到会话，续聊保持 |
+| 计划依赖（DAG） | 总管用 `[依赖:@名字]` 标注；按层执行，上游结论自动注入下游；多依赖可点选，环/缺失依赖拒绝，失败任务可单件重跑 |
+| 每 Bot 模型 | Bot 库和房间内可选模型 + 推理强度；保存前对照目录校验，开跑前装到会话，续聊保持 |
 | Bot 库 | 岗位、专长、输出规范、工具集（agent preset）、模型；导出 / 导入 JSON |
 | 团队模板 | 常一起干活的几只 Bot 存成团队，建房一键拉入 |
 | 成员运维 | 房间内直接改名字/岗位/专长/工具集，或移出，不用重建房间 |
@@ -102,19 +106,31 @@ pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 - **没有遥测**，不向任何分析服务上报；网络请求只发生在 DSH 调用模型时；
 - 旧版本 `rooms.json` 里的消息会在首次读取时自动迁移到分文件（按消息 id 去重）。
 
+## 验证记录
+
+- `pnpm check`：144 个测试；`pnpm test:coverage` 当前 ~76% 行覆盖
+- **真实模型 DAG**：2026-11-13 在真实 DSH + 默认 `deepseek-flash` 上跑通 A→B 依赖，`a.md` / `b.md` 落盘，验收 2/2（[报告](docs/internal/reports/真实DAG验收-2026-11-13.md)）
+- **发布包**：本地 zip/tgz，新建 profile 安装后 `/health` 与 `/models` 正常（[报告](docs/internal/reports/发布包验证-2026-11-13.md)）
+- **UI 冒烟**：`pnpm smoke:ui` 起隔离 DSH + 无头 Edge，空房→示例→搜索→Bot 库/模型下拉
+
 ## 开发
 
 ```powershell
 pnpm install
-pnpm check        # lint + 类型 + 构建 + 143 个测试
+pnpm check        # lint + 类型 + 构建 + 144 个测试
 pnpm test:coverage # 覆盖率门槛
 pnpm drill        # 一条命令演完：建房→派活→产出→验收（默认假宿主，0 token）
 pnpm drill -- --port 54873   # 打真实实例（会花 token）
 pnpm smoke:ui     # 真实 DSH + 无头浏览器冒烟（需要本机 DSH）
 pnpm docs:build   # 构建文档站到 site/
+pnpm stage:release # 本地生成 zip/tgz/SHA256SUMS
+node spike/live-dag-check.mjs --port 54873  # 真实模型 DAG 验收（花 token）
+
+# 重新生成 README 的 demo GIF
+python scripts/make-demo-gif.py
 ```
 
-架构与决策：[STATE.md](STATE.md)、[TASKS.md](TASKS.md)、[M1-技术方案.md](M1-技术方案.md)；
+架构与决策：[STATE.md](STATE.md)、[TASKS.md](TASKS.md)、[M1-技术方案.md](docs/design/M1-技术方案.md)；
 贡献前请读 [CONTRIBUTING.md](CONTRIBUTING.md)。文档站源码在 [docs-site](docs-site)，`pnpm docs:build` 生成 `site/`。
 
 ## License

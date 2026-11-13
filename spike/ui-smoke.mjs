@@ -192,6 +192,11 @@ async function main() {
       deviceScaleFactor: 1,
       mobile: false
     })
+    const { writeFileSync } = await import('node:fs')
+    const capture = async (name) => {
+      const shot = await send('Page.captureScreenshot', { format: 'png' })
+      writeFileSync(`spike/smoke-${name}.png`, Buffer.from(shot.result.data, 'base64'))
+    }
     await sleep(8000)
 
     // 首启可能弹“预览版说明”
@@ -206,6 +211,7 @@ async function main() {
 
     const empty = await evaluate(`document.body.innerText.includes('创建示例房间')`)
     assert(empty === true, '空状态没有出现「创建示例房间」')
+    await capture('1-empty')
     console.log('[smoke] 空状态 OK')
 
     const clicked = await evaluate(
@@ -216,6 +222,7 @@ async function main() {
     const text = await evaluate(`document.body.innerText`)
     assert(text.includes('示例：电源模块交付'), '示例房间没有出现')
     assert(text.includes('阿岚') && text.includes('老周') && text.includes('小柯'), '示例成员不齐')
+    await capture('2-room')
     console.log('[smoke] 示例房间 OK')
 
     // 搜索
@@ -234,6 +241,7 @@ async function main() {
     await sleep(1500)
     const searched = await evaluate(`document.body.innerText.includes('搜索「示例」')`)
     assert(searched === true, '搜索没有返回结果面板')
+    await capture('3-search')
     console.log('[smoke] 消息搜索 OK')
 
     // Bot 库
@@ -243,15 +251,29 @@ async function main() {
     await sleep(1500)
     const library = await evaluate(`document.body.innerText.includes('Bot 库')`)
     assert(library === true, 'Bot 库页面没打开')
-    console.log('[smoke] Bot 库 OK')
+    // 模型下拉是新功能，冒烟里确认它真的渲染出来
+    const hasModelSelect = await evaluate(
+      `document.body.innerText.includes('模型：跟随 DSH 默认')`
+    )
+    if (hasModelSelect !== true) {
+      await evaluate(
+        `(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='+ 新建 Bot'); if(b) b.click() })()`
+      )
+      await sleep(800)
+    }
+    const modelReady = await evaluate(
+      `document.body.innerText.includes('模型：跟随 DSH 默认')`
+    )
+    assert(modelReady === true, 'Bot 表单没有渲染模型下拉')
+    await capture('4-library')
+    console.log('[smoke] Bot 库 + 模型下拉 OK')
 
     const shot = await send('Page.captureScreenshot', {
       format: 'png',
       clip: { x: 264, y: 0, width: 1180, height: 900, scale: 1 }
     })
-    const { writeFileSync } = await import('node:fs')
     writeFileSync('spike/ui-smoke.png', Buffer.from(shot.result.data, 'base64'))
-    console.log('[smoke] 通过，截图 spike/ui-smoke.png')
+    console.log('[smoke] 通过，截图 spike/ui-smoke.png + spike/smoke-1..4.png')
   } catch (error) {
     const body = cdp === undefined ? '' : await cdp.evaluate('document.body.innerText.slice(0, 1200)')
     console.error('[smoke] 失败：' + (error instanceof Error ? error.message : String(error)))

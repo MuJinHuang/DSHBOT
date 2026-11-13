@@ -25,6 +25,7 @@ N1「能修、能看、能复用」：
 - 每 Bot 模型：Bot 库/房间内可选，开跑前装到会话，导出/导入保留
 - 真实 UI 冒烟：`pnpm smoke:ui` 起隔离 DSH + 无头浏览器
 - 文档站：`docs-site/` → `site/`，GitHub Pages workflow
+- 全面优化：DAG 多依赖点选 + 失败任务单件重跑；模型保存前校验 + 推理强度；内部文档归档；UI 冒烟帧与 demo GIF；真实模型 DAG 验收；新 profile 安装验证
 
 ## 0.1.0 — 2026-11
 

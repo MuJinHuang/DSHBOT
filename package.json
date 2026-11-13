@@ -29,7 +29,9 @@
     "drill:docs": "pnpm build && node --test tests/api-files.test.mjs",
     "drill:clone": "pnpm build && node --test tests/api-reuse.test.mjs",
     "smoke:ui": "node spike/ui-smoke.mjs",
-    "docs:build": "node scripts/build-docs.mjs",
+    "docs:check": "node scripts/check-doc-links.mjs",
+    "docs:build": "node scripts/check-doc-links.mjs && node scripts/build-docs.mjs",
+    "stage:release": "node scripts/stage-release.mjs",
     "install:profile": "node scripts/install.mjs"
   },
   "devDependencies": {

@@ -5,7 +5,7 @@
 ## 0. 发布前检查
 
 ```powershell
-pnpm check            # 143 个用例必须全绿
+pnpm check            # 144 个用例必须全绿
 pnpm drill            # 假宿主全链路
 pnpm build
 ```
@@ -47,15 +47,20 @@ git push -u origin main
 ## 3. 打 tag 触发 Release
 
 ```powershell
+# 先本地验证产物
+pnpm check
+pnpm docs:build
+pnpm stage:release
+
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
 `.github/workflows/release.yml` 会：
 
-1. `pnpm install --frozen-lockfile` + `pnpm check`；
+1. `pnpm install --frozen-lockfile` + `pnpm check` + `pnpm docs:build`；
 2. 校验 tag 与 `packages/plugin/package.json` 的 version 一致；
-3. 产出 `dshbot-plugin-0.2.0.zip`、`dshbot-plugin-0.2.0.tgz`、`SHA256SUMS.txt`；
+3. 用 `pnpm stage:release` 产出 `dshbot-plugin-0.2.0.zip`、`dshbot-plugin-0.2.0.tgz`、`SHA256SUMS.txt`（跨平台，不依赖系统 zip）；
 4. 用 `gh release create` 建 Release，正文取 `CHANGELOG.md`。
 
 发布后下载 zip，按 [INSTALL.md](INSTALL.md) 在干净 profile 里装一遍，确认：
@@ -103,4 +108,5 @@ GitHub 仓库 **Settings → Pages → Build and deployment → Source: GitHub A
 
 - 英文文档目前只有 README；内部设计文档仍是中文；
 - UI 冒烟依赖本机 DSH + Edge/Chrome，没有放进 CI；
-- 多依赖的图形化编辑还没做（计划卡目前是单依赖下拉，多依赖沿用总管声明）。
+- 还没有 GitHub remote、`v0.2.0` tag 和线上 Pages；建仓后补 README CI badge；
+- 发布包已在本地新 profile 验证（`/health`、`/models`），但还没在第二台干净机器上装过。

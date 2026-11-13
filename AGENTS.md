@@ -11,7 +11,7 @@ DSH 插件：在 DSH 里开"房间"，拉多个有岗位设定的 Bot 协作完�
 ## 新会话先读这四份（按顺序，别全读）
 
 1. `STATE.md` — 现在能跑什么、进度、**无人值守协作约定**
-2. `下一阶段任务.md` — N1 已完成，下一阶段候选与实测结论、成本参考
+2. `docs/internal/roadmap/下一阶段任务.md` — N1 已完成，下一阶段候选与实测结论、成本参考
 3. `TASKS.md` — 任务明细（**状态列以代码为准**）
 4. `README.md` — 能力清单
 
@@ -27,7 +27,7 @@ DSH 插件：在 DSH 里开"房间"，拉多个有岗位设定的 Bot 协作完�
   ```
 - **每完成一项就提交**，用小步 conventional commit（`feat:` / `fix:` / `docs:`）。
 - **文档与代码同步提交**。文档过期时，房间里的 Bot 会把过期状态当真汇报——文档就是事实来源。
-- 提交前必须 `pnpm check` 全绿（类型 + 构建 + 143 个测试）。
+- 提交前必须 `pnpm check` 全绿（类型 + 构建 + 144 个测试）。
 - 安装：`node scripts/install.mjs`（幂等，同步 profile 的 bundle 层并清理旧补丁段）。装完要**用户**重启才生效。
 - Windows 上写 `.ps1` 必须带 UTF-8 BOM，否则 Windows PowerShell 按 ANSI 解码，中文全乱。
 
@@ -60,6 +60,7 @@ pnpm build            # 只构建
 node scripts/install.mjs           # 装进 desktop profile
 pnpm smoke:ui                      # 真实 DSH + 无头浏览器冒烟
 pnpm docs:build                    # 构建文档站
+node spike/live-dag-check.mjs --port 54873  # 真实模型 DAG 验收（花 token）
 node spike/session-cost.cjs        # 量本次/全部会话花了多少 token 与钱
 node spike/desktop-test.mjs 59565  # 端到端演练（建房→派活→验收）
 ```

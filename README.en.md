@@ -1,12 +1,16 @@
 # DSHBot Rooms
 
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Node](https://img.shields.io/badge/node-%E2%89%A522-3c873a)
+![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.5-5b8cff)
+
 **Open a room in DSH, invite role-based bot teammates, say one sentence, and let them split the work.**
 
 You set the goal, approve the plan, and review the deliverables.
 
-> Chinese: [README.md](README.md) · Version **0.2.0** · 100+ tests · **No third-party runtime dependencies**
+> Chinese: [README.md](README.md) · Version **0.2.0** · 144 tests · **No third-party runtime dependencies**
 
-![Room page with a pending plan](docs/assets/rooms.png)
+![DSHBot demo: empty room → demo room → search → bot library](docs/assets/demo.gif)
 
 ## What makes it different
 
@@ -48,8 +52,8 @@ pnpm install:profile
 | First run | One-click demo room with three roles and machine-checkable acceptance |
 | Multi-bot work | Host plans, `@name` dispatch, task cards, handoff summaries |
 | Plan gate | confirm / auto modes; partial approval; skipped cards |
-| Plan DAG | Host marks `[depends:@name]`; layered execution; upstream conclusions injected into downstream tasks; cycles rejected |
-| Per-bot model | Choose in the library or room; applied to the session before running and kept across turns |
+| Plan DAG | Host marks `[depends:@name]`; layered execution; upstream conclusions injected; multi-dependency chips, cycle rejection, per-task retry |
+| Per-bot model | Model + reasoning effort in the library or room; validated against the catalog and applied to the session |
 | Bot library | Persona, expertise, output rules, agent preset, model; JSON export/import |
 | Team templates | Save a group of bots; one-click when creating a room |
 | Member ops | Edit or remove a bot inside a room without recreating it |
@@ -71,18 +75,25 @@ pnpm install:profile
 
 Data lives in `%USERPROFILE%\.dsh\dshbot\` (`rooms.json` + `rooms/<id>/messages.jsonl`). There is **no telemetry**; the only network calls come from DSH when it talks to the model.
 
+## Verification
+
+- `pnpm check`: 144 tests; `pnpm test:coverage` is ~76% lines.
+- **Real-model DAG**: on 2026-11-13, a real DSH instance with `deepseek-flash` ran an A→B dependency, wrote `a.md` / `b.md`, and passed 2/2 checks.
+- **Release artifact**: local zip/tgz installed into a fresh profile; `/health` and `/models` responded.
+
 ## Development
 
 ```powershell
-pnpm check                     # lint + types + build + 143 tests
+pnpm check                     # lint + types + build + 144 tests
 pnpm test:coverage             # coverage gates
 pnpm drill                     # full flow with a fake host, 0 tokens
 pnpm drill -- --port 54873     # against a live DSH instance (costs tokens)
 pnpm smoke:ui                  # real DSH + headless browser smoke
 pnpm docs:build                # build the docs site into site/
+node spike/live-dag-check.mjs --port 54873  # real-model DAG check (costs tokens)
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the design notes in [STATE.md](STATE.md) / [M1-技术方案.md](M1-技术方案.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the design notes in [STATE.md](STATE.md) / [M1-技术方案.md](docs/design/M1-技术方案.md).
 
 ## License
 

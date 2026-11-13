@@ -19,7 +19,8 @@ const pages = [
   { file: 'guide/rooms.md', label: '五分钟上手' },
   { file: 'guide/automation.md', label: '依赖 / 模型 / 预算' },
   { file: 'guide/development.md', label: '开发与测试' },
-  { file: 'guide/security.md', label: '安全与限制' }
+  { file: 'guide/security.md', label: '安全与限制' },
+  { file: 'en.md', label: 'English' }
 ]
 
 function titleOf(markdown, fallback) {
@@ -33,6 +34,9 @@ function render(markdown) {
 }
 
 function layout({ page, title, html, rootPath }) {
+  const lang = page.startsWith('en') ? 'en' : 'zh-CN'
+  const switchHref = lang === 'en' ? `${rootPath}index.html` : `${rootPath}en.html`
+  const switchLabel = lang === 'en' ? '中文' : 'English'
   const nav = pages
     .map((item) => {
       const href = rootPath + item.file.replace(/\.md$/, '.html')
@@ -42,11 +46,11 @@ function layout({ page, title, html, rootPath }) {
     .join('\n')
 
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="DSHBot Rooms — 在 DSH 里开房间，让有岗位的 Bot 协作交付">
+<meta name="description" content="DSHBot Rooms — role-based bot teams inside DSH">
 <title>${title} · DSHBot</title>
 <link rel="stylesheet" href="${rootPath}assets/style.css">
 </head>
@@ -54,12 +58,13 @@ function layout({ page, title, html, rootPath }) {
 <header class="topbar">
   <a class="brand" href="${rootPath}index.html">🏠 DSHBot <span>Rooms</span></a>
   <span class="spacer"></span>
-  <a class="top-link" href="${rootPath}guide/install.html">安装</a>
-  <a class="top-link" href="${rootPath}guide/rooms.html">上手</a>
+  <a class="top-link" href="${rootPath}guide/install.html">${lang === 'en' ? 'Install' : '安装'}</a>
+  <a class="top-link" href="${rootPath}guide/rooms.html">${lang === 'en' ? 'Guide' : '上手'}</a>
+  <a class="top-link" href="${switchHref}">${switchLabel}</a>
 </header>
 <div class="shell">
   <aside class="sidebar">
-    <div class="nav-title">文档</div>
+    <div class="nav-title">${lang === 'en' ? 'Docs' : '文档'}</div>
     ${nav}
   </aside>
   <main class="content">
@@ -67,7 +72,7 @@ ${html}
   </main>
 </div>
 <footer class="footer">
-  MIT · 本地优先 · 没有遥测 · <span>DSHBot ${new Date().getFullYear()}</span>
+  MIT · local-first · no telemetry · <span>DSHBot ${new Date().getFullYear()}</span>
 </footer>
 </body>
 </html>
