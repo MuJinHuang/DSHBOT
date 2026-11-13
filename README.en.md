@@ -53,6 +53,7 @@ pnpm install:profile
 | Delivery | Changed files, diff, version snapshots, rollback, Markdown/audit export |
 | File browser | Delivery panel "Files" tab; Markdown preview |
 | Search | Full-history search with context snippets and sender names |
+| Backup / restore | Whole-database JSON backup; restore requires confirmation and snapshots the current data first |
 | Scale | Per-room `messages.jsonl`, paginated loading; `rooms.json` only stores rooms |
 | Guardrails | Per-run / per-bot / per-room budgets editable in the UI, stop button, self-healing, timeout marker |
 

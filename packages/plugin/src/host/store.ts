@@ -231,6 +231,11 @@ export function appendMessages(roomId: string, messages: Message[]): void {
 export function updateMessages(roomId: string, mutate: (messages: Message[]) => void): void {
   const messages = messagesOf(roomId)
   mutate(messages)
+  writeMessages(roomId, messages)
+}
+
+/** 覆盖写一个房间的消息文件（恢复备份时用）。 */
+export function writeMessages(roomId: string, messages: Message[]): void {
   const file = messagesFile(roomId)
   mkdirSync(dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.tmp`
@@ -241,4 +246,19 @@ export function updateMessages(roomId: string, mutate: (messages: Message[]) => 
 /** 删房间时一并删掉它的消息文件。 */
 export function deleteMessages(roomId: string): void {
   rmSync(messagesFile(roomId), { force: true })
+}
+
+/** 自动备份目录：恢复前会先把当前库写一份到这里。 */
+export function backupsRoot(): string {
+  return join(dataRoot(), 'backups')
+}
+
+/** 把一份备份写到本地磁盘，返回文件路径。 */
+export function saveBackupFile(data: unknown): string {
+  const dir = backupsRoot()
+  mkdirSync(dir, { recursive: true })
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const file = join(dir, `backup-${stamp}.json`)
+  writeFileSync(file, JSON.stringify(data, null, 2), 'utf8')
+  return file
 }

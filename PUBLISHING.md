@@ -5,7 +5,7 @@
 ## 0. 发布前检查
 
 ```powershell
-pnpm check            # 109 个用例必须全绿
+pnpm check            # 126 个用例必须全绿
 pnpm drill            # 假宿主全链路
 pnpm build
 ```
@@ -83,10 +83,10 @@ Remove-Item ./LICENSE
 - 在 README 顶部加 CI / Release badge；
 - 把 `docs/assets/` 截图同步到 Release 说明或社交预览；
 - 新功能按 [CONTRIBUTING.md](CONTRIBUTING.md) 的约定走 PR；
-- 下一阶段（N2）候选：搜索、备份恢复、DAG、每 Bot 模型、文档站。
+- 下一阶段（N2）候选：DAG、每 Bot 模型、文档站、UI 自动化。
 
 ## 已知待补
 
 - 英文文档目前只有 README；内部设计文档仍是中文；
 - 没有真实 UI 自动化测试，页面回归靠截图 + 手工；
-- 搜索、备份恢复、DAG 等 P1 功能还没做（见 [下一阶段任务.md](下一阶段任务.md)）。
+- DAG 依赖、UI 自动化等还没做（见 [下一阶段任务.md](下一阶段任务.md)）。

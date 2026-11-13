@@ -12,12 +12,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { acceptanceWarning, auditRecords, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, searchMessages, splitPersona, toJsonl } from '@dshbot/core'
-import type { BotDefinition, Budget, Member, Room, TeamTemplate } from '@dshbot/core'
+import { acceptanceWarning, auditRecords, makeBackup, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, searchMessages, splitPersona, toJsonl, validateBackup } from '@dshbot/core'
+import type { BotDefinition, Budget, Member, Message, Room, TeamTemplate } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
 import type { Database } from './store.js'
-import { appendMessages, deleteMessages, loadDb, messagesOf, roomsRoot, saveDb, updateMessages } from './store.js'
+import { appendMessages, deleteMessages, loadDb, messagesOf, roomsRoot, saveBackupFile, saveDb, updateMessages, writeMessages } from './store.js'
 import { cancelRoom, deliverRoom, fileDiff, handleRoomMessage, listVersions, liveActivitiesOf, makeMessage, rollbackWorkspace, runPlan, snapshotsOf } from './turn.js'
 
 /** 前缀，必须与注册时一致。 */
@@ -51,8 +51,9 @@ function listPresets(ctx: AgentContext): { id: string; label: string }[] {
   return known
 }
 
-/** 请求体上限，防手抖。 */
+/** 请求体上限，防手抖。恢复备份时单独放宽。 */
 const MAX_BODY = 64 * 1024
+const MAX_RESTORE_BODY = 50 * 1024 * 1024
 
 /** 「全体停手」的暗号。 */
 const STOP_PATTERN = /@所有人\s*停|@all\s+stop/i
@@ -66,12 +67,12 @@ function send(res: ServerResponse, status: number, payload: unknown): void {
   res.end(body)
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBytes = MAX_BODY): Promise<unknown> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += (chunk as Buffer).length
-    if (size > MAX_BODY) throw new Error('请求体过大')
+    if (size > maxBytes) throw new Error('请求体过大')
     chunks.push(chunk as Buffer)
   }
   if (chunks.length === 0) return {}
@@ -207,6 +208,84 @@ export function createHandler(ctx: AgentContext) {
       // ---- /presets（当前部署可选的 agent preset，决定工具集）----
       if (parts.length === 1 && parts[0] === 'presets') {
         send(res, 200, { presets: listPresets(ctx), defaultPreset: 'standard' })
+        return
+      }
+
+      // ---- /backup（整库导出）----
+      if (parts.length === 1 && parts[0] === 'backup' && method === 'GET') {
+        const db = loadDb()
+        const messages: Record<string, Message[]> = {}
+        for (const room of db.rooms) messages[room.id] = messagesOf(room.id)
+        const backup = makeBackup({
+          rooms: db.rooms,
+          bots: db.bots,
+          teams: db.teams ?? [],
+          messages
+        })
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': `attachment; filename="dshbot-backup-${nowIso().slice(0, 10)}.json"`,
+          'cache-control': 'no-store'
+        })
+        res.end(JSON.stringify(backup, null, 2))
+        return
+      }
+
+      // ---- /backup/restore（整库恢复；必须先 confirm）----
+      if (parts.length === 2 && parts[0] === 'backup' && parts[1] === 'restore' && method === 'POST') {
+        const input = (await readJson(req, MAX_RESTORE_BODY)) as {
+          confirm?: unknown
+          backup?: unknown
+        }
+        if (input.confirm !== true) {
+          send(res, 400, { error: '恢复会覆盖当前所有房间与消息，请显式传 confirm:true' })
+          return
+        }
+        const checked = validateBackup(input.backup)
+        if (!checked.ok) {
+          send(res, 400, { error: `备份格式不对：${checked.error}` })
+          return
+        }
+        const backup = checked.backup
+        const db = loadDb()
+
+        // 覆盖前先把当前库写一份到 backups/，出问题还能找回来
+        const currentMessages: Record<string, Message[]> = {}
+        for (const room of db.rooms) currentMessages[room.id] = messagesOf(room.id)
+        const autoBackup = saveBackupFile(
+          makeBackup({
+            rooms: db.rooms,
+            bots: db.bots,
+            teams: db.teams ?? [],
+            messages: currentMessages
+          })
+        )
+
+        for (const room of db.rooms) deleteMessages(room.id)
+        for (const room of backup.rooms) {
+          writeMessages(room.id, backup.messages[room.id] ?? [])
+        }
+        saveDb({
+          version: 1,
+          rooms: backup.rooms,
+          bots: backup.bots,
+          teams: backup.teams
+        })
+
+        const messageCount = Object.values(backup.messages).reduce(
+          (sum, list) => sum + list.length,
+          0
+        )
+        send(res, 200, {
+          ok: true,
+          restored: {
+            rooms: backup.rooms.length,
+            bots: backup.bots.length,
+            teams: backup.teams.length,
+            messages: messageCount
+          },
+          backupFile: autoBackup
+        })
         return
       }
 

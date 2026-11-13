@@ -5,7 +5,7 @@
  * web 下解析成 `/dshbot/api/...`，Electron 下解析成 `dsh://app/dshbot/api/...`，
  * 由主进程的协议处理转发给本地 webserver。这是 DSH 自家插件的既有约定。
  */
-import type { Delivery, Member, Message, MessageMatch, Room } from '@dshbot/core'
+import type { BackupFile, Delivery, Member, Message, MessageMatch, Room } from '@dshbot/core'
 
 const BASE = 'dshbot/api'
 
@@ -84,6 +84,24 @@ export async function listMessagePage(
   return request<{ messages: Message[]; hasMore: boolean }>(
     `rooms/${roomId}/messages?${params.toString()}`
   )
+}
+
+/** 导出整库备份。 */
+export async function fetchBackup(): Promise<BackupFile> {
+  return request<BackupFile>('backup')
+}
+
+/** 恢复整库；调用方必须已经让用户确认过。 */
+export async function restoreBackup(
+  backup: unknown
+): Promise<{ rooms: number; bots: number; teams: number; messages: number }> {
+  const data = await request<{
+    restored: { rooms: number; bots: number; teams: number; messages: number }
+  }>('backup/restore', {
+    method: 'POST',
+    body: JSON.stringify({ confirm: true, backup })
+  })
+  return data.restored
 }
 
 /** 搜索房间消息（服务端搜全部历史，不限于当前已加载的一页）。 */

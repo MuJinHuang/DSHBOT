@@ -1,5 +1,5 @@
 import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 import { acceptanceWarning, formatTokens } from '@dshbot/core'
 import type { Delivery, Member, Message, MessageMatch, Room } from '@dshbot/core'
 import {
@@ -26,7 +26,9 @@ import {
   readFile,
   listTeams,
   cloneRoom,
-  searchRoomMessages
+  searchRoomMessages,
+  fetchBackup,
+  restoreBackup
 } from './api'
 import type {
   VersionEntry,
@@ -2127,6 +2129,8 @@ export function RoomsPage() {
   const [botId, setBotId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [demoBusy, setDemoBusy] = useState(false)
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [backupNote, setBackupNote] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -2477,6 +2481,61 @@ export function RoomsPage() {
     }
   }, [demoBusy])
 
+  // 整库备份：导出一个 JSON，恢复时先确认再覆盖
+  const exportBackup = useCallback(async () => {
+    if (backupBusy) return
+    setBackupBusy(true)
+    setBackupNote(null)
+    try {
+      const backup = await fetchBackup()
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `dshbot-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      setBackupNote('已导出整库备份')
+    } catch (err) {
+      setBackupNote(err instanceof Error ? err.message : '导出失败')
+    } finally {
+      setBackupBusy(false)
+    }
+  }, [backupBusy])
+
+  const importBackup = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (file === undefined) return
+      try {
+        const parsed = JSON.parse(await file.text()) as unknown
+        const yes = window.confirm(
+          '恢复会用备份覆盖当前所有房间、Bot 与消息（覆盖前会自动备份当前库到 backups/）。继续？'
+        )
+        if (!yes) {
+          setBackupNote('已取消恢复')
+          return
+        }
+        setBackupBusy(true)
+        const counts = await restoreBackup(parsed)
+        const list = await listRooms()
+        setRooms(list)
+        setSelectedId(list[0]?.id ?? null)
+        setCreating(false)
+        await refreshBots()
+        setBackupNote(
+          `已恢复 ${counts.rooms} 个房间 / ${counts.bots} 个 Bot / ${counts.messages} 条消息`
+        )
+      } catch (err) {
+        setBackupNote(err instanceof Error ? err.message : '恢复失败')
+      } finally {
+        setBackupBusy(false)
+        event.target.value = ''
+      }
+    },
+    [refreshBots]
+  )
+
   // 删房间
   const removeRoom = useCallback(async () => {
     if (selectedId === null) return
@@ -2633,7 +2692,66 @@ export function RoomsPage() {
                       h('span', { style: { color: MUTED, marginLeft: 8, fontSize: 11 } },
                         STATUS_LABEL[room.status] ?? room.status)
                     )
+                  ),
+            h(
+              'div',
+              { style: { marginTop: 12, paddingTop: 8, borderTop: LINE } },
+              h('div', { style: { fontSize: 10.5, color: MUTED, marginBottom: 5 } }, '整库'),
+              h(
+                'div',
+                { style: { display: 'flex', gap: 6 } },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => void exportBackup(),
+                    disabled: backupBusy,
+                    style: {
+                      flex: 1,
+                      padding: '5px 0',
+                      borderRadius: 6,
+                      border: LINE,
+                      background: 'transparent',
+                      color: 'inherit',
+                      fontSize: 11.5,
+                      fontFamily: 'inherit',
+                      cursor: backupBusy ? 'default' : 'pointer',
+                      opacity: backupBusy ? 0.6 : 1
+                    }
+                  },
+                  '备份'
+                ),
+                h(
+                  'label',
+                  {
+                    style: {
+                      flex: 1,
+                      padding: '5px 0',
+                      borderRadius: 6,
+                      border: LINE,
+                      fontSize: 11.5,
+                      textAlign: 'center',
+                      cursor: backupBusy ? 'default' : 'pointer',
+                      opacity: backupBusy ? 0.6 : 1
+                    }
+                  },
+                  '恢复',
+                  h('input', {
+                    type: 'file',
+                    accept: '.json,application/json',
+                    style: { display: 'none' },
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => void importBackup(event)
+                  })
+                )
+              ),
+              backupNote === null
+                ? null
+                : h(
+                    'div',
+                    { style: { fontSize: 10.5, color: MUTED, marginTop: 5, lineHeight: 1.5 } },
+                    backupNote
                   )
+            )
           )
         : h(
             'div',
