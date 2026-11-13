@@ -241,7 +241,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | 项 | 状态 | 说明 |
 |---|---|---|
 | lint | ✅ | Biome 进 `pnpm check`；CI 双平台 |
-| 覆盖率门槛 | ✅ | `pnpm test:coverage`：lines ≥65 / branches ≥60 / functions ≥65（当前 75%） |
+| 覆盖率门槛 | ✅ | `pnpm test:coverage`：lines ≥65 / branches ≥60 / functions ≥65（当前 76%） |
 | 首次使用引导 | ✅ | `POST /rooms/demo`；空状态「创建示例房间」 |
 | 消息搜索 | ✅ | `GET /rooms/:id/search?q=` + 界面搜索框（全量历史） |
 | 备份 / 恢复 | ✅ | `GET /backup`、`POST /backup/restore`；确认 + 覆盖前自动备份到 `backups/` |
