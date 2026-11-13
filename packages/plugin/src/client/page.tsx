@@ -1,6 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
-import { acceptanceWarning, formatTokens } from '@dshbot/core'
+import { acceptanceWarning, formatTokens, orderPlanItems } from '@dshbot/core'
 import type { Delivery, Member, Message, MessageMatch, Room } from '@dshbot/core'
 import {
   createRoom,
@@ -13,6 +13,7 @@ import {
   say,
   setRoomState,
   stop,
+  retryTask,
   takeover,
   updateRoom,
   listVersions,
@@ -282,7 +283,16 @@ function CreateForm(props: {
         style: { ...inputStyle, resize: 'vertical' }
       }),
       h('div', { style: { fontSize: 11, color: MUTED, marginTop: 6, lineHeight: 1.6 } },
-        'file:路径 = 文件必须存在；cmd:命令 = 退出码必须为 0；其余交给模型判。')
+        'file:路径 = 文件必须存在；cmd:命令 = 退出码必须为 0；其余交给模型判。'),
+      acceptance
+        .split('\n')
+        .some((line) => line.trim().toLowerCase().startsWith('cmd:'))
+        ? h(
+            'div',
+            { style: { fontSize: 11, color: '#e8a33d', marginTop: 6, lineHeight: 1.6 } },
+            '注意：cmd: 会以当前用户权限执行命令。只对可信项目使用。'
+          )
+        : null
     ),
 
     h('div', { style: { marginBottom: 18 } },
@@ -449,12 +459,16 @@ function ToolRow(props: { message: Message; member?: Member }) {
 }
 
 /** 任务卡：总管派给某只 Bot 的活。 */
-function AssignmentRow(props: { message: Message }) {
+function AssignmentRow(props: {
+  message: Message
+  onRetry?: (itemId: string) => void
+}) {
   const payload = (props.message.payload ?? {}) as {
     title?: string
     from?: string
     to?: string
     status?: string
+    itemId?: string
   }
   const status = payload.status ?? 'running'
   const label =
@@ -468,11 +482,13 @@ function AssignmentRow(props: { message: Message }) {
             ? '已否决'
             : status === 'blocked'
               ? '已阻塞'
-              : status === 'pending'
-              ? '待确认'
-              : status === 'running'
-                ? '进行中'
-                : status
+              : status === 'superseded'
+                ? '已重跑'
+                : status === 'pending'
+                  ? '待确认'
+                  : status === 'running'
+                    ? '进行中'
+                    : status
   const color =
     status === 'done'
       ? '#2f9e44'
@@ -480,9 +496,16 @@ function AssignmentRow(props: { message: Message }) {
         ? '#e5484d'
         : status === 'blocked'
           ? '#e8a33d'
-          : status === 'skipped' || status === 'rejected' || status === 'pending'
+          : status === 'skipped' ||
+              status === 'rejected' ||
+              status === 'pending' ||
+              status === 'superseded'
             ? MUTED
             : '#2f6fed'
+  const retryable =
+    (status === 'failed' || status === 'blocked') &&
+    payload.itemId !== undefined &&
+    props.onRetry !== undefined
 
   return h(
     'div',
@@ -503,7 +526,29 @@ function AssignmentRow(props: { message: Message }) {
       h('span', { style: { fontSize: 11, color: '#2f6fed' } }, '任务卡'),
       h('span', { style: { color: MUTED, fontSize: 11 } },
         `${payload.from ?? ''} → ${payload.to ?? ''}`),
-      h('span', { style: { marginLeft: 'auto', color, fontSize: 11 } }, label)
+      h('span', { style: { marginLeft: 'auto', color, fontSize: 11 } }, label),
+      retryable
+        ? h(
+            'button',
+            {
+              type: 'button',
+              onClick: () => {
+                if (payload.itemId !== undefined) props.onRetry?.(payload.itemId)
+              },
+              style: {
+                border: LINE,
+                background: 'transparent',
+                color: '#2f6fed',
+                cursor: 'pointer',
+                borderRadius: 4,
+                padding: '0 6px',
+                fontSize: 10.5,
+                fontFamily: 'inherit'
+              }
+            },
+            '重跑'
+          )
+        : null
     ),
     h('div', {}, payload.title ?? props.message.text)
   )
@@ -651,11 +696,15 @@ function MarkdownText(props: { text: string }) {
 }
 
 /** 一条消息。bot 消息带发送者名字，方便分清楚是谁说的。 */
-function MessageRow(props: { message: Message; member?: Member }) {
+function MessageRow(props: {
+  message: Message
+  member?: Member
+  onRetry?: (itemId: string) => void
+}) {
   const { message, member } = props
 
   if (message.kind === 'tool') return h(ToolRow, { message, member })
-  if (message.kind === 'assignment') return h(AssignmentRow, { message })
+  if (message.kind === 'assignment') return h(AssignmentRow, { message, onRetry: props.onRetry })
 
   const mine = message.kind === 'human'
   return h(
@@ -1256,12 +1305,25 @@ function PlanBanner(props: {
     item.id ?? `legacy-${index}`
   const allKeys = plan.items.map((item, index) => keyOf(item, index))
   const [picked, setPicked] = useState<string[]>(allKeys)
-  const [depEdits, setDepEdits] = useState<Record<string, string>>({})
+  const [depEdits, setDepEdits] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     setPicked(plan.items.map((item, index) => keyOf(item, index)))
     setDepEdits({})
   }, [plan.id])
+
+  const dependencyCheck = orderPlanItems(
+    plan.items.map((item) => ({
+      id: item.id,
+      dependsOn: item.id === undefined ? [] : depEdits[item.id] ?? item.dependsOn ?? []
+    }))
+  )
+  const dependencyError =
+    dependencyCheck.cycle
+      ? '依赖成环，先改掉其中一个依赖'
+      : dependencyCheck.missing.length > 0
+        ? `依赖不存在：${dependencyCheck.missing.join('、')}`
+        : null
 
   const toggle = (key: string): void => {
     setPicked((current) =>
@@ -1270,6 +1332,7 @@ function PlanBanner(props: {
   }
 
   const approve = (): void => {
+    if (dependencyError !== null) return
     if (!selectable) {
       props.onDecide('approve')
       return
@@ -1281,8 +1344,8 @@ function PlanBanner(props: {
     for (const item of plan.items) {
       if (item.id === undefined) continue
       const edit = depEdits[item.id]
-      if (edit === undefined || edit === '__keep__') continue
-      dependencies[item.id] = edit === '' ? [] : [edit]
+      if (edit === undefined) continue
+      dependencies[item.id] = edit
     }
     props.onDecide(
       'approve',
@@ -1317,7 +1380,7 @@ function PlanBanner(props: {
         {
           type: 'button',
           onClick: approve,
-          disabled: props.busy || pickedCount === 0,
+          disabled: props.busy || pickedCount === 0 || dependencyError !== null,
           style: {
             padding: '4px 12px',
             borderRadius: 6,
@@ -1326,8 +1389,9 @@ function PlanBanner(props: {
             color: '#fff',
             fontSize: 11.5,
             fontFamily: 'inherit',
-            cursor: props.busy || pickedCount === 0 ? 'default' : 'pointer',
-            opacity: props.busy || pickedCount === 0 ? 0.6 : 1
+            cursor:
+              props.busy || pickedCount === 0 || dependencyError !== null ? 'default' : 'pointer',
+            opacity: props.busy || pickedCount === 0 || dependencyError !== null ? 0.6 : 1
           }
         },
         props.busy
@@ -1357,12 +1421,15 @@ function PlanBanner(props: {
         '否决'
       )
     ),
+    dependencyError === null
+      ? null
+      : h('div', { style: { fontSize: 11, color: '#e5484d', marginBottom: 6 } }, dependencyError),
     ...plan.items.map((item, index) => {
       const itemKey = keyOf(item, index)
-      const depNames = (item.dependsOn ?? [])
-        .map((dep) => plan.items.find((candidate) => candidate.id === dep)?.name)
-        .filter((name): name is string => name !== undefined)
-      const depValue = item.id === undefined ? '__keep__' : depEdits[item.id] ?? '__keep__'
+      const deps = item.id === undefined ? item.dependsOn ?? [] : depEdits[item.id] ?? item.dependsOn ?? []
+      const candidates = plan.items.filter(
+        (candidate) => candidate.id !== undefined && candidate.id !== item.id
+      )
       return h(
         'div',
         {
@@ -1383,40 +1450,75 @@ function PlanBanner(props: {
           h('div', {}, h('span', { style: { color: MUTED } }, `${item.name}：`), item.task),
           h(
             'div',
-            { style: { display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, fontSize: 10.5, color: MUTED } },
+            {
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 4,
+                marginTop: 2,
+                fontSize: 10.5,
+                color: MUTED
+              }
+            },
             '依赖：',
-            h(
-              'select',
-              {
-                value: depValue,
-                onChange: (e: { target: { value: string } }) => {
-                  if (item.id === undefined) return
-                  setDepEdits((current) => ({ ...current, [item.id as string]: e.target.value }))
+            deps.length === 0 ? h('span', {}, candidates.length === 0 ? '无（只有这一件）' : '无') : null,
+            ...candidates.map((candidate) => {
+              const active = deps.includes(candidate.id as string)
+              return h(
+                'button',
+                {
+                  key: candidate.id as string,
+                  type: 'button',
+                  title: candidate.task,
+                  onClick: () => {
+                    if (item.id === undefined) return
+                    setDepEdits((current) => {
+                      const base = current[item.id as string] ?? item.dependsOn ?? []
+                      const next = base.includes(candidate.id as string)
+                        ? base.filter((dep) => dep !== candidate.id)
+                        : [...base, candidate.id as string]
+                      return { ...current, [item.id as string]: next }
+                    })
+                  },
+                  style: {
+                    border: `1px solid ${active ? 'rgba(47,111,237,0.75)' : LINE}`,
+                    background: active ? 'rgba(47,111,237,0.16)' : 'transparent',
+                    color: active ? '#2f6fed' : MUTED,
+                    cursor: 'pointer',
+                    padding: '0 6px',
+                    borderRadius: 10,
+                    fontSize: 10.5,
+                    lineHeight: '18px',
+                    fontFamily: 'inherit'
+                  }
                 },
-                style: {
-                  ...inputStyle,
-                  width: 'auto',
-                  maxWidth: 260,
-                  padding: '1px 4px',
-                  fontSize: 10.5
-                }
-              },
-              h(
-                'option',
-                { value: '__keep__' },
-                depNames.length === 0 ? '沿用计划（无依赖）' : `沿用计划（等 ${depNames.join('、')}）`
-              ),
-              h('option', { value: '' }, '无依赖'),
-              ...plan.items
-                .filter((candidate) => candidate.id !== undefined && candidate.id !== item.id)
-                .map((candidate) =>
-                  h(
-                    'option',
-                    { key: candidate.id as string, value: candidate.id as string },
-                    `等待 ${candidate.name}：${candidate.task.slice(0, 24)}`
-                  )
+                `${active ? '✓ ' : ''}等待 ${candidate.name}`
+              )
+            }),
+            deps.length === 0
+              ? null
+              : h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => {
+                      if (item.id === undefined) return
+                      setDepEdits((current) => ({ ...current, [item.id as string]: [] }))
+                    },
+                    style: {
+                      border: 'none',
+                      background: 'transparent',
+                      color: MUTED,
+                      cursor: 'pointer',
+                      fontSize: 10.5,
+                      textDecoration: 'underline',
+                      fontFamily: 'inherit',
+                      padding: 0
+                    }
+                  },
+                  '清空'
                 )
-            )
           )
         )
       )
@@ -1528,6 +1630,7 @@ function RoomDetail(props: {
     itemIds?: string[],
     dependencies?: Record<string, string[]>
   ) => void
+  onRetryTask: (itemId: string) => void
   planBusy: boolean
   hasMore: boolean
   loadingOlder: boolean
@@ -1722,6 +1825,15 @@ function RoomDetail(props: {
             onChange: (e: { target: { value: string } }) => setEditAcceptance(e.target.value),
             style: { ...inputStyle, resize: 'vertical' }
           }),
+          editAcceptance
+            .split('\n')
+            .some((line) => line.trim().toLowerCase().startsWith('cmd:'))
+            ? h(
+                'div',
+                { style: { fontSize: 11, color: '#e8a33d', lineHeight: 1.6 } },
+                'cmd: 会以当前用户权限执行命令，只对可信项目使用。'
+              )
+            : null,
           h('input', {
             value: editWorkspace,
             placeholder: '工作目录（Bot 只能看这个目录）',
@@ -2002,7 +2114,8 @@ function RoomDetail(props: {
                 h(MessageRow, {
                   key: m.id,
                   message: m,
-                  member: (room.members ?? []).find((x) => x.botId === m.botId)
+                  member: (room.members ?? []).find((x) => x.botId === m.botId),
+                  onRetry: props.onRetryTask
                 })
               ),
           sending
@@ -2502,6 +2615,25 @@ export function RoomsPage() {
     [selectedId]
   )
 
+  const retryTaskHandler = useCallback(
+    async (itemId: string) => {
+      if (selectedId === null) return
+      setPlanBusy(true)
+      setSendError(null)
+      try {
+        await retryTask(selectedId, itemId)
+        setMessages(await listMessages(selectedId))
+        const list = await listRooms()
+        setRooms(list)
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : '重跑失败')
+      } finally {
+        setPlanBusy(false)
+      }
+    },
+    [selectedId]
+  )
+
   // 改房间
   const editRoom = useCallback(
     async (input: {
@@ -2945,6 +3077,7 @@ export function RoomsPage() {
                     itemIds?: string[],
                     dependencies?: Record<string, string[]>
                   ) => void decidePlanHandler(action, itemIds, dependencies),
+                  onRetryTask: (itemId: string) => void retryTaskHandler(itemId),
                   planBusy,
                   hasMore,
                   loadingOlder,

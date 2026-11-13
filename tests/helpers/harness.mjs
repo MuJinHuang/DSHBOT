@@ -186,7 +186,19 @@ export function fakeCtx(options = {}) {
       modelCatalog: async () =>
         options.modelCatalog ?? {
           default: { provider: 'mock', model: 'mock-1' },
-          groups: [{ id: 'mock', name: 'Mock', models: [{ id: 'mock-1', name: 'Mock One' }] }],
+          groups: [
+            {
+              id: 'mock',
+              name: 'Mock',
+              models: [
+                {
+                  id: 'mock-1',
+                  name: 'Mock One',
+                  reasoning: { efforts: [{ id: 'high', name: 'High' }], defaultEffort: 'high' }
+                }
+              ]
+            }
+          ],
           failures: []
         }
     },

@@ -312,7 +312,14 @@ export async function runOnce(
       throw new Error('当前 DSH 版本不支持按 Bot 选择模型（sessionController.selectModel 不存在）')
     }
     // 必须作为方法调用：SessionController.selectModel 内部用 this.commands
-    await controller.selectModel({ sessionId, provider: model.provider, model: model.model })
+    await controller.selectModel({
+      sessionId,
+      provider: model.provider,
+      model: model.model,
+      ...(model.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: model.reasoningEffort })
+    })
   }
 
   // 句柄形状随宿主版本变，先探清楚再调用，免得报一句没用的 "not a function"

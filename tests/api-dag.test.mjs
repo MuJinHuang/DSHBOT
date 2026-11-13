@@ -164,3 +164,57 @@ test('依赖成环/指向未批准任务都返回 400', async () => {
   assert.equal(cycle.status, 400)
   assert.match(cycle.data.error, /成环/)
 })
+
+test('失败任务卡可以单件重跑，旧卡标 superseded', async () => {
+  const roomId = 'room_retry'
+  const failedCard = {
+    id: 'msg_failed',
+    roomId,
+    kind: 'assignment',
+    from: 'bot_host',
+    text: '阿岚 → 老周：任务 A',
+    createdAt: now,
+    payload: {
+      title: '任务 A',
+      from: '阿岚',
+      to: '老周',
+      botId: botA.botId,
+      status: 'failed',
+      itemId: 'item_a'
+    }
+  }
+  seedDb(dataDir, {
+    version: 1,
+    rooms: [
+      {
+        ...roomOf(roomId, [
+          { id: 'item_a', botId: botA.botId, name: botA.name, task: '任务 A', files: [] }
+        ]),
+        pendingPlan: undefined
+      }
+    ],
+    messages: [failedCard],
+    bots: []
+  })
+
+  prompts.length = 0
+  const res = await api.api(`rooms/${roomId}/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ itemId: 'item_a' })
+  })
+  assert.equal(res.status, 200, res.text)
+
+  const messages = readMessages(dataDir, roomId)
+  assert.equal(messages.find((message) => message.id === 'msg_failed').payload.status, 'superseded')
+  const done = messages.filter(
+    (message) => message.kind === 'assignment' && message.payload?.status === 'done'
+  )
+  assert.equal(done.length, 1)
+  assert.match(prompts.at(-1), /任务 A/)
+
+  const missing = await api.api(`rooms/${roomId}/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ itemId: 'item_ghost' })
+  })
+  assert.equal(missing.status, 404)
+})

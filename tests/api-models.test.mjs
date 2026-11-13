@@ -26,30 +26,32 @@ test('/models 返回当前部署的模型目录', async () => {
   assert.equal(res.status, 200, res.text)
   assert.equal(res.data.catalog.groups[0].id, 'mock')
   assert.equal(res.data.catalog.groups[0].models[0].id, 'mock-1')
+  assert.equal(res.data.catalog.groups[0].models[0].reasoning.efforts[0].id, 'high')
 })
 
-test('Bot 卡带模型：创建、导出、导入都保留', async () => {
+test('Bot 卡带模型：创建、导出、导入都保留（含推理强度）', async () => {
+  const model = { provider: 'mock', model: 'mock-1', reasoningEffort: 'high' }
   const created = await api.api('bots', {
     method: 'POST',
     body: JSON.stringify({
       name: '模型测试员',
       persona: '测试',
-      model: { provider: 'mock', model: 'mock-1' }
+      model
     })
   })
   assert.equal(created.status, 201, created.text)
-  assert.deepEqual(created.data.bot.model, { provider: 'mock', model: 'mock-1' })
+  assert.deepEqual(created.data.bot.model, model)
 
   const exported = await api.api(`bots/${created.data.bot.id}/export`)
   assert.equal(exported.status, 200)
-  assert.deepEqual(exported.data.bot.model, { provider: 'mock', model: 'mock-1' })
+  assert.deepEqual(exported.data.bot.model, model)
 
   const imported = await api.api('bots/import', {
     method: 'POST',
     body: JSON.stringify(exported.data)
   })
   assert.equal(imported.status, 201, imported.text)
-  assert.deepEqual(imported.data.bot.model, { provider: 'mock', model: 'mock-1' })
+  assert.deepEqual(imported.data.bot.model, model)
 })
 
 test('拉人时复制模型，房间内可以改/清空', async () => {
@@ -86,7 +88,10 @@ test('拉人时复制模型，房间内可以改/清空', async () => {
 test('开跑前把 Bot 的模型装到会话上', async () => {
   const bot = await api.api('bots', {
     method: 'POST',
-    body: JSON.stringify({ name: '模型执行者', model: { provider: 'mock', model: 'mock-1' } })
+    body: JSON.stringify({
+      name: '模型执行者',
+      model: { provider: 'mock', model: 'mock-1', reasoningEffort: 'high' }
+    })
   })
   const room = await api.api('rooms', {
     method: 'POST',
@@ -107,6 +112,7 @@ test('开跑前把 Bot 的模型装到会话上', async () => {
   const request = ctx.modelSelections.at(-1)
   assert.equal(request.provider, 'mock')
   assert.equal(request.model, 'mock-1')
+  assert.equal(request.reasoningEffort, 'high')
   assert.ok(typeof request.sessionId === 'string' && request.sessionId !== '')
 })
 
@@ -126,4 +132,20 @@ test('非法模型结构返回 400', async () => {
     body: JSON.stringify({ model: 'mock-1' })
   })
   assert.equal(badPatch.status, 400)
+
+  const unavailable = await api.api(`bots/${bot.data.bot.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ model: { provider: 'mock', model: 'ghost' } })
+  })
+  assert.equal(unavailable.status, 400)
+  assert.match(unavailable.data.error, /不在当前目录/)
+
+  const badEffort = await api.api(`bots/${bot.data.bot.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      model: { provider: 'mock', model: 'mock-1', reasoningEffort: 'extreme' }
+    })
+  })
+  assert.equal(badEffort.status, 400)
+  assert.match(badEffort.data.error, /不支持推理强度/)
 })

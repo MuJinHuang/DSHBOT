@@ -55,6 +55,8 @@ export interface Budget {
 export interface ModelRef {
   provider: string
   model: string
+  /** 推理强度；不填用模型默认。 */
+  reasoningEffort?: string
 }
 
 /** Bot 的一张卡，可导出、可分享。 */

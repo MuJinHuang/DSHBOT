@@ -103,6 +103,7 @@ export function BotForm(props: {
       : `${props.initial.model.provider}|${props.initial.model.model}`
   )
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>({ groups: [] })
+  const [effort, setEffort] = useState(props.initial?.model?.reasoningEffort ?? '')
   const [splitting, setSplitting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -149,18 +150,22 @@ export function BotForm(props: {
           ? null
           : {
               provider: modelKey.slice(0, modelKey.indexOf('|')),
-              model: modelKey.slice(modelKey.indexOf('|') + 1)
+              model: modelKey.slice(modelKey.indexOf('|') + 1),
+              ...(effort === '' ? {} : { reasoningEffort: effort })
             }
     }),
-    [name, avatar, persona, expertise, instructions, preset, modelKey]
+    [name, avatar, persona, expertise, instructions, preset, modelKey, effort]
   )
 
   const modelOptions = modelCatalog.groups.flatMap((group) =>
     group.models.map((entry) => ({
       key: `${group.id}|${entry.id}`,
-      label: `${group.name} · ${entry.name}`
+      label: `${group.name} · ${entry.name}`,
+      entry
     }))
   )
+  const selectedModel = modelOptions.find((item) => item.key === modelKey)?.entry
+  const effortOptions = selectedModel?.reasoning?.efforts ?? []
 
   const run = useCallback(
     async (mode: 'save' | 'join') => {
@@ -241,7 +246,10 @@ export function BotForm(props: {
       'select',
       {
         value: modelKey,
-        onChange: (e: { target: { value: string } }) => setModelKey(e.target.value),
+        onChange: (e: { target: { value: string } }) => {
+          setModelKey(e.target.value)
+          setEffort('')
+        },
         style: { ...field, width: '100%' }
       },
       h('option', { value: '' }, '模型：跟随 DSH 默认'),
@@ -250,6 +258,31 @@ export function BotForm(props: {
         ? h('option', { value: modelKey }, modelKey.replace('|', ' · '))
         : null
     ),
+    effortOptions.length === 0
+      ? null
+      : h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 4 } },
+          h('span', { style: { fontSize: 10.5, color: MUTED, whiteSpace: 'nowrap' } }, '推理强度：'),
+          h(
+            'select',
+            {
+              value: effort,
+              onChange: (e: { target: { value: string } }) => setEffort(e.target.value),
+              style: { ...field, flex: 1 }
+            },
+            h(
+              'option',
+              { value: '' },
+              selectedModel?.reasoning?.defaultEffort === undefined
+                ? '模型默认'
+                : `模型默认（${selectedModel.reasoning.defaultEffort}）`
+            ),
+            ...effortOptions.map((item) =>
+              h('option', { key: item.id, value: item.id }, item.name)
+            )
+          )
+        ),
     h('textarea', {
       value: persona,
       rows: 8,
@@ -702,6 +735,7 @@ function MemberEditor(props: {
     member.model == null ? '' : `${member.model.provider}|${member.model.model}`
   )
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>({ groups: [] })
+  const [effort, setEffort] = useState(member.model?.reasoningEffort ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -717,9 +751,12 @@ function MemberEditor(props: {
   const modelOptions = modelCatalog.groups.flatMap((group) =>
     group.models.map((entry) => ({
       key: `${group.id}|${entry.id}`,
-      label: `${group.name} · ${entry.name}`
+      label: `${group.name} · ${entry.name}`,
+      entry
     }))
   )
+  const selectedModel = modelOptions.find((item) => item.key === modelKey)?.entry
+  const effortOptions = selectedModel?.reasoning?.efforts ?? []
 
   const save = useCallback(async () => {
     if (name.trim() === '') {
@@ -742,7 +779,8 @@ function MemberEditor(props: {
             ? null
             : {
                 provider: modelKey.slice(0, modelKey.indexOf('|')),
-                model: modelKey.slice(modelKey.indexOf('|') + 1)
+                model: modelKey.slice(modelKey.indexOf('|') + 1),
+                ...(effort === '' ? {} : { reasoningEffort: effort })
               }
       })
       props.onSaved(result.room)
@@ -751,7 +789,7 @@ function MemberEditor(props: {
     } finally {
       setBusy(false)
     }
-  }, [name, avatar, role, persona, expertise, instructions, preset, modelKey, member.botId, props])
+  }, [name, avatar, role, persona, expertise, instructions, preset, modelKey, effort, member.botId, props])
 
   return h(
     'div',
@@ -811,7 +849,10 @@ function MemberEditor(props: {
       'select',
       {
         value: modelKey,
-        onChange: (e: { target: { value: string } }) => setModelKey(e.target.value),
+        onChange: (e: { target: { value: string } }) => {
+          setModelKey(e.target.value)
+          setEffort('')
+        },
         style: { ...field, width: '100%' }
       },
       h('option', { value: '' }, '模型：跟随 DSH 默认'),
@@ -820,6 +861,31 @@ function MemberEditor(props: {
         ? h('option', { value: modelKey }, modelKey.replace('|', ' · '))
         : null
     ),
+    effortOptions.length === 0
+      ? null
+      : h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 4 } },
+          h('span', { style: { fontSize: 10.5, color: MUTED, whiteSpace: 'nowrap' } }, '推理强度：'),
+          h(
+            'select',
+            {
+              value: effort,
+              onChange: (e: { target: { value: string } }) => setEffort(e.target.value),
+              style: { ...field, flex: 1 }
+            },
+            h(
+              'option',
+              { value: '' },
+              selectedModel?.reasoning?.defaultEffort === undefined
+                ? '模型默认'
+                : `模型默认（${selectedModel.reasoning.defaultEffort}）`
+            ),
+            ...effortOptions.map((item) =>
+              h('option', { key: item.id, value: item.id }, item.name)
+            )
+          )
+        ),
     h('input', {
       value: expertise,
       placeholder: '一句话专长',

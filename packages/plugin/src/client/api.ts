@@ -230,6 +230,17 @@ export async function stop(roomId: string): Promise<{ stopped: boolean }> {
   })
 }
 
+/** 重跑一条失败/阻塞的任务卡。 */
+export async function retryTask(
+  roomId: string,
+  itemId: string
+): Promise<{ messages: Message[]; room?: Room }> {
+  return request<{ messages: Message[]; room?: Room }>(`rooms/${roomId}/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ itemId })
+  })
+}
+
 /** 改房间（名称 / 目标 / 验收）。 */
 export async function updateRoom(
   roomId: string,
@@ -277,6 +288,10 @@ export interface ModelEntry {
   id: string
   name: string
   description?: string
+  reasoning?: {
+    efforts: { id: string; name: string; description?: string }[]
+    defaultEffort?: string
+  }
 }
 
 export interface ModelGroup {

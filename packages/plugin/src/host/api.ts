@@ -96,7 +96,61 @@ function parseModelInput(value: unknown): ModelInput {
   if (!isNonEmptyString(raw.provider) || !isNonEmptyString(raw.model)) {
     return { ok: false }
   }
-  return { ok: true, value: { provider: raw.provider.trim(), model: raw.model.trim() } }
+  if (raw.reasoningEffort !== undefined && !isNonEmptyString(raw.reasoningEffort)) {
+    return { ok: false }
+  }
+  return {
+    ok: true,
+    value: {
+      provider: raw.provider.trim(),
+      model: raw.model.trim(),
+      ...(isNonEmptyString(raw.reasoningEffort)
+        ? { reasoningEffort: raw.reasoningEffort.trim() }
+        : {})
+    }
+  }
+}
+
+/** 宿主模型目录的宽松形状；拿不到目录时不阻塞保存。 */
+interface CatalogLike {
+  groups?: {
+    id?: unknown
+    models?: {
+      id?: unknown
+      reasoning?: { efforts?: { id?: unknown }[] }
+    }[]
+  }[]
+}
+
+/**
+ * 保存前校验模型是否在当前部署目录里。
+ *
+ * 目录不可用（老 DSH / 服务异常）时返回 null：不静默拒绝，留给运行时 selectModel 报错。
+ */
+async function validateModelSelection(
+  ctx: AgentContext,
+  model: ModelRef
+): Promise<string | null> {
+  let catalog: unknown
+  try {
+    catalog = await ctx.sessionController?.modelCatalog?.()
+  } catch {
+    return null
+  }
+  if (catalog === undefined || catalog === null) return null
+  const groups = (catalog as CatalogLike).groups
+  if (!Array.isArray(groups)) return null
+  const group = groups.find((item) => item.id === model.provider)
+  if (group === undefined) return `当前部署没有模型供应商「${model.provider}」`
+  const entry = (group.models ?? []).find((item) => item.id === model.model)
+  if (entry === undefined) return `模型「${model.provider}/${model.model}」不在当前目录里`
+  if (model.reasoningEffort !== undefined) {
+    const efforts = entry.reasoning?.efforts ?? []
+    if (efforts.length > 0 && !efforts.some((effort) => effort.id === model.reasoningEffort)) {
+      return `模型「${model.model}」不支持推理强度「${model.reasoningEffort}」`
+    }
+  }
+  return null
 }
 
 /**
@@ -389,6 +443,13 @@ export function createHandler(ctx: AgentContext) {
             send(res, 400, { error: 'model 必须是 {provider, model}' })
             return
           }
+          if (modelInput.value !== undefined && modelInput.value !== null) {
+            const invalid = await validateModelSelection(ctx, modelInput.value)
+            if (invalid !== null) {
+              send(res, 400, { error: invalid })
+              return
+            }
+          }
           const bot = makeBot({
             name: text('name') as string,
             ...(text('avatar') === undefined ? {} : { avatar: text('avatar') as string }),
@@ -457,6 +518,13 @@ export function createHandler(ctx: AgentContext) {
             send(res, 400, { error: 'model 必须是 {provider, model}' })
             return
           }
+          if (modelInput.value !== undefined && modelInput.value !== null) {
+            const invalid = await validateModelSelection(ctx, modelInput.value)
+            if (invalid !== null) {
+              send(res, 400, { error: invalid })
+              return
+            }
+          }
           const bot = makeBot({
             name: input.name,
             avatar: isNonEmptyString(input.avatar) ? input.avatar : undefined,
@@ -507,7 +575,14 @@ export function createHandler(ctx: AgentContext) {
             return
           }
           if (modelInput.value === null) delete target.model
-          else if (modelInput.value !== undefined) target.model = modelInput.value
+          else if (modelInput.value !== undefined) {
+            const invalid = await validateModelSelection(ctx, modelInput.value)
+            if (invalid !== null) {
+              send(res, 400, { error: invalid })
+              return
+            }
+            target.model = modelInput.value
+          }
           target.updatedAt = nowIso()
           saveDb(db)
           send(res, 200, { bot: target })
@@ -886,6 +961,13 @@ export function createHandler(ctx: AgentContext) {
           return
         }
         const model = modelInput.value === undefined ? def?.model : modelInput.value ?? undefined
+        if (model !== undefined) {
+          const invalid = await validateModelSelection(ctx, model)
+          if (invalid !== null) {
+            send(res, 400, { error: invalid })
+            return
+          }
+        }
 
         const member: Member = {
           botId: newId('bot'),
@@ -976,7 +1058,14 @@ export function createHandler(ctx: AgentContext) {
           return
         }
         if (modelInput.value === null) delete member.model
-        else if (modelInput.value !== undefined) member.model = modelInput.value
+        else if (modelInput.value !== undefined) {
+          const invalid = await validateModelSelection(ctx, modelInput.value)
+          if (invalid !== null) {
+            send(res, 400, { error: invalid })
+            return
+          }
+          member.model = modelInput.value
+        }
 
         target.updatedAt = nowIso()
         saveDb(db)
@@ -1363,6 +1452,89 @@ export function createHandler(ctx: AgentContext) {
           return
         }
         send(res, 405, { error: 'method not allowed' })
+        return
+      }
+
+      // ---- /rooms/:id/retry（重跑一条失败/阻塞的任务卡）----
+      if (parts.length === 3 && parts[2] === 'retry' && method === 'POST') {
+        const input = (await readJson(req)) as { itemId?: unknown }
+        if (!isNonEmptyString(input.itemId)) {
+          send(res, 400, { error: 'itemId 不能为空' })
+          return
+        }
+        const db = loadDb()
+        const target = db.rooms.find((r) => r.id === roomId)
+        if (target === undefined) {
+          send(res, 404, { error: '房间不存在' })
+          return
+        }
+        if (target.status === 'working') {
+          send(res, 409, { error: '房间正在跑，等这一轮结束再重跑' })
+          return
+        }
+        const card = [...messagesOf(roomId)]
+          .reverse()
+          .find((message) => {
+            const payload = message.payload as Record<string, unknown> | undefined
+            return (
+              message.kind === 'assignment' &&
+              payload?.itemId === input.itemId &&
+              (payload?.status === 'failed' || payload?.status === 'blocked')
+            )
+          })
+        if (card === undefined) {
+          send(res, 404, { error: '没有找到这条失败/阻塞的任务卡' })
+          return
+        }
+        const payload = (card.payload ?? {}) as Record<string, unknown>
+        const botId = typeof payload.botId === 'string' ? payload.botId : ''
+        const name = typeof payload.to === 'string' ? payload.to : ''
+        const task = typeof payload.title === 'string' ? payload.title : ''
+        if (botId === '' || task === '') {
+          send(res, 409, { error: '这条任务卡缺少 botId/task，无法重跑' })
+          return
+        }
+        const hostMember = (target.members ?? []).find((m) => m.botId === target.hostBotId)
+        const hostBotId = hostMember?.botId ?? target.hostBotId ?? 'system'
+        const hostName =
+          hostMember?.name ??
+          (typeof payload.from === 'string' && payload.from !== '' ? payload.from : '总管')
+
+        // 旧卡标成“已重跑”，避免同一张卡看起来还在失败
+        updateMessages(roomId, (messages) => {
+          for (const message of messages) {
+            const p = message.payload as Record<string, unknown> | undefined
+            if (p === undefined) continue
+            if (
+              message.kind === 'assignment' &&
+              p.itemId === input.itemId &&
+              (p.status === 'failed' || p.status === 'blocked')
+            ) {
+              p.status = 'superseded'
+            }
+          }
+        })
+        target.status = 'working'
+        target.updatedAt = nowIso()
+        saveDb(db)
+
+        let produced: Message[] = []
+        try {
+          produced = await runPlan(ctx, roomId, hostBotId, hostName, [
+            { botId, name, task, itemId: input.itemId, dependsOn: [] }
+          ])
+        } finally {
+          // 无论成功失败都把房间放回可操作状态，避免卡在 working
+          const after = loadDb()
+          const fresh = after.rooms.find((r) => r.id === roomId)
+          if (fresh !== undefined) {
+            fresh.status = 'created'
+            fresh.updatedAt = nowIso()
+            saveDb(after)
+          }
+        }
+        const fresh = loadDb().rooms.find((r) => r.id === roomId)
+        send(res, 200, { ok: true, messages: produced, room: fresh })
         return
       }
 
