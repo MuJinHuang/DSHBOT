@@ -1,9 +1,8 @@
 # 项目状态快照
 
-> 更新于 2026-11-12。这是**可交接的状态快照**：接手的人（或下一次会话）从这份文档就能继续。
-> **下一步要做什么，看 [下一阶段任务.md](docs/internal/roadmap/下一阶段任务.md)**（含七轮实测的结论与 N1 任务清单）。
-> 需求见 [DSHBot-需求规格-v1.1.md](docs/internal/requirements/DSHBot-需求规格-v1.1.md)，任务清单见 [TASKS.md](TASKS.md)，原理见 [DSHBot知识手册.docx](docs/internal/archive/DSHBot知识手册.docx)。
-> **开新会话**：仓库根的 AGENTS.md 会被 DSH 自动加载，见 [新会话怎么接.md](docs/internal/handoff/新会话怎么接.md)。
+> 更新于 2026-11-14。当前版本 **1.0.0**；完整包在 `DSHBOT(V1.0)/`（已 gitignore）。
+> **新会话先读 [HANDOFF.md](HANDOFF.md)**：已交付内容、Phase 0 发布、Phase 1 稳定性、Phase 2 记忆/技能。
+> 下一步发布闭环看 [PUBLISHING.md](PUBLISHING.md)；历史需求见 [DSHBot-需求规格-v1.1.md](docs/internal/requirements/DSHBot-需求规格-v1.1.md)，任务清单见 [TASKS.md](TASKS.md)。
 
 ---
 

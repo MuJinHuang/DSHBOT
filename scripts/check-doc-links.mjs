@@ -20,7 +20,7 @@ function walk(dir) {
   }
 }
 
-for (const name of ['README.md', 'README.en.md', 'CONTRIBUTING.md', 'PUBLISHING.md', 'SECURITY.md', 'INSTALL.md']) {
+for (const name of ['README.md', 'README.en.md', 'CONTRIBUTING.md', 'PUBLISHING.md', 'SECURITY.md', 'INSTALL.md', 'HANDOFF.md']) {
   if (existsSync(join(root, name))) files.push(join(root, name))
 }
 walk(join(root, 'docs'))

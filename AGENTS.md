@@ -8,12 +8,19 @@
 DSH 插件：在 DSH 里开"房间"，拉多个有岗位设定的 Bot 协作完成任务。
 仓库根 `D:\Desktop\DSBOT`，pnpm monorepo（core / plugin / cli）。
 
-## 新会话先读这四份（按顺序，别全读）
+## 当前任务（v1.0.0 之后）
 
-1. `STATE.md` — 现在能跑什么、进度、**无人值守协作约定**
-2. `docs/internal/roadmap/下一阶段任务.md` — N1 已完成，下一阶段候选与实测结论、成本参考
-3. `TASKS.md` — 任务明细（**状态列以代码为准**）
-4. `README.md` — 能力清单
+> **v1.0.0 完整包已完成**：`DSHBOT(V1.0)/` + 总 ZIP + 介绍/说明文档（Markdown/PDF/DOCX）。
+> 当前没有 GitHub remote / tag / Pages；发布闭环是 Phase 0，需要用户提供仓库 URL。
+> **新会话第一份读 [HANDOFF.md](HANDOFF.md)**，里面有精确状态、下一步和不要做的事。
+
+## 新会话先读这五份（按顺序，别全读）
+
+1. `HANDOFF.md` — 当前版本、已交付包、下一步 Phase 0/1/2
+2. `STATE.md` — 现在能跑什么、进度、**无人值守协作约定**
+3. `docs/internal/roadmap/下一阶段任务.md` — N1/N2/N3 的历史候选与实测结论
+4. `TASKS.md` — 任务明细（**状态列以代码为准**）
+5. `README.md` — 能力清单
 
 `git log --oneline -10` 看最近改了什么。**不要重做已完成的部分。**
 
