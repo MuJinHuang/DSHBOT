@@ -307,11 +307,12 @@ export async function runOnce(
 
   // 每个 Bot 自己的模型：在投递消息前装到会话上，下一次请求生效
   if (model !== undefined) {
-    const select = ctx.sessionController?.selectModel
-    if (typeof select !== 'function') {
+    const controller = ctx.sessionController
+    if (controller === undefined || typeof controller.selectModel !== 'function') {
       throw new Error('当前 DSH 版本不支持按 Bot 选择模型（sessionController.selectModel 不存在）')
     }
-    await select({ sessionId, provider: model.provider, model: model.model })
+    // 必须作为方法调用：SessionController.selectModel 内部用 this.commands
+    await controller.selectModel({ sessionId, provider: model.provider, model: model.model })
   }
 
   // 句柄形状随宿主版本变，先探清楚再调用，免得报一句没用的 "not a function"

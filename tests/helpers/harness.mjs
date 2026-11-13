@@ -170,6 +170,7 @@ export function fakeCtx(options = {}) {
       }
     },
     sessionController: {
+      selections: modelSelections,
       agents: {
         createSession: async (request) => {
           created.push(request)
@@ -177,8 +178,9 @@ export function fakeCtx(options = {}) {
           return { agent: makeAgent(request.cwd) }
         }
       },
-      selectModel: async (request) => {
-        modelSelections.push(request)
+      // 故意写成方法：宿主里 selectModel 内部用 this.commands，提取成裸函数会炸
+      async selectModel(request) {
+        this.selections.push(request)
         return { selected: { provider: request.provider, model: request.model } }
       },
       modelCatalog: async () =>
@@ -191,6 +193,6 @@ export function fakeCtx(options = {}) {
     /** 数一共起了几个会话。 */
     createdSessions: created,
     /** 记录每次按 Bot 选模型的请求。 */
-    modelSelections
+    modelSelections: modelSelections
   }
 }
