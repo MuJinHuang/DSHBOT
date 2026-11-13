@@ -29,10 +29,12 @@
     "drill:docs": "pnpm build && node --test tests/api-files.test.mjs",
     "drill:clone": "pnpm build && node --test tests/api-reuse.test.mjs",
     "smoke:ui": "node spike/ui-smoke.mjs",
+    "docs:build": "node scripts/build-docs.mjs",
     "install:profile": "node scripts/install.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
+    "marked": "^18.2.0",
     "typescript": "5.9.3"
   }
 }
