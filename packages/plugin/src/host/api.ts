@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { acceptanceWarning, auditRecords, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, splitPersona, toJsonl } from '@dshbot/core'
+import { acceptanceWarning, auditRecords, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, searchMessages, splitPersona, toJsonl } from '@dshbot/core'
 import type { BotDefinition, Budget, Member, Room, TeamTemplate } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
@@ -957,6 +957,20 @@ export function createHandler(ctx: AgentContext) {
           'cache-control': 'no-store'
         })
         res.end(toJsonl(records))
+        return
+      }
+
+      // ---- /rooms/:id/search（搜索房间消息）----
+      if (parts.length === 3 && parts[2] === 'search' && method === 'GET') {
+        const query = (url.searchParams.get('q') ?? '').trim()
+        if (query === '') {
+          send(res, 400, { error: 'q 不能为空' })
+          return
+        }
+        const rawLimit = Number(url.searchParams.get('limit') ?? '20')
+        const limit = Number.isFinite(rawLimit) ? Math.round(rawLimit) : 20
+        const results = searchMessages(messagesOf(roomId), query, limit)
+        send(res, 200, { query, results, count: results.length })
         return
       }
 

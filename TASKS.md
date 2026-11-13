@@ -154,6 +154,18 @@ S0-1 hello 冒烟 ──> S0-2 脚手架 ──> S0-3 插件加载 ──> M0-3 
 
 ---
 
+## P1 第一批（体验与工程）
+
+| ID | 任务 | 验收 | 状态 |
+|---|---|---|---|
+| P1-1 | lint | Biome lint 进 `pnpm check`，CI 双平台跑 | ✅ |
+| P1-2 | 覆盖率门槛 | `pnpm test:coverage`；lines ≥65% / branches ≥60% / functions ≥65%；CI 跑 | ✅ 当前 73% |
+| P1-3 | 首次使用引导 | `POST /rooms/demo` 一键示例房间；空状态按钮 | ✅ |
+| P1-4 | 消息搜索 | `GET /rooms/:id/search?q=`；UI 搜索框 + 结果片段 | ✅ |
+| P1-5 | 备份/恢复 | 整库导出 JSON；导入前校验 + 确认 | ⬜ |
+
+---
+
 ## M4 技能与例行（约 3 人日，MVP 之后）
 
 | ID | 任务 | 验收 | 依赖 | 估时 | 状态 |

@@ -5,7 +5,7 @@
  * web 下解析成 `/dshbot/api/...`，Electron 下解析成 `dsh://app/dshbot/api/...`，
  * 由主进程的协议处理转发给本地 webserver。这是 DSH 自家插件的既有约定。
  */
-import type { Delivery, Member, Message, Room } from '@dshbot/core'
+import type { Delivery, Member, Message, MessageMatch, Room } from '@dshbot/core'
 
 const BASE = 'dshbot/api'
 
@@ -84,6 +84,19 @@ export async function listMessagePage(
   return request<{ messages: Message[]; hasMore: boolean }>(
     `rooms/${roomId}/messages?${params.toString()}`
   )
+}
+
+/** 搜索房间消息（服务端搜全部历史，不限于当前已加载的一页）。 */
+export async function searchRoomMessages(
+  roomId: string,
+  query: string,
+  limit = 20
+): Promise<MessageMatch[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) })
+  const data = await request<{ results: MessageMatch[] }>(
+    `rooms/${roomId}/search?${params.toString()}`
+  )
+  return data.results ?? []
 }
 
 /** 在房间里说一句话，等 Bot 回话。 */

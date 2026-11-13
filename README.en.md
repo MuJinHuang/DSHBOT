@@ -52,6 +52,7 @@ pnpm install:profile
 | Member ops | Edit or remove a bot inside a room without recreating it |
 | Delivery | Changed files, diff, version snapshots, rollback, Markdown/audit export |
 | File browser | Delivery panel "Files" tab; Markdown preview |
+| Search | Full-history search with context snippets and sender names |
 | Scale | Per-room `messages.jsonl`, paginated loading; `rooms.json` only stores rooms |
 | Guardrails | Per-run / per-bot / per-room budgets editable in the UI, stop button, self-healing, timeout marker |
 

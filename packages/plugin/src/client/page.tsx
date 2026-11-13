@@ -1,7 +1,7 @@
 import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { acceptanceWarning, formatTokens } from '@dshbot/core'
-import type { Delivery, Member, Message, Room } from '@dshbot/core'
+import type { Delivery, Member, Message, MessageMatch, Room } from '@dshbot/core'
 import {
   createRoom,
   createDemoRoom,
@@ -25,7 +25,8 @@ import {
   listFiles,
   readFile,
   listTeams,
-  cloneRoom
+  cloneRoom,
+  searchRoomMessages
 } from './api'
 import type {
   VersionEntry,
@@ -1355,6 +1356,79 @@ function PlanBanner(props: {
   )
 }
 
+/** 搜索结果：服务端搜全量历史，这里只负责展示与清除。 */
+function SearchResultsPanel(props: {
+  query: string
+  results: MessageMatch[]
+  members: Member[]
+  onClear: () => void
+}) {
+  const nameOf = (match: MessageMatch): string => {
+    if (match.kind === 'human') return '我'
+    if (match.kind === 'system') return '系统'
+    if (match.botId === undefined) return match.from
+    return props.members.find((member) => member.botId === match.botId)?.name ?? match.from
+  }
+  const kindOf = (kind: string): string =>
+    kind === 'human' ? '人话' : kind === 'bot' ? 'Bot' : kind === 'tool' ? '工具' : kind === 'assignment' ? '任务卡' : '系统'
+
+  return h(
+    'div',
+    {
+      style: {
+        flex: 1,
+        minHeight: 160,
+        overflow: 'auto',
+        border: LINE,
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 10
+      }
+    },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', fontSize: 12, marginBottom: 8 } },
+      h('span', { style: { fontWeight: 600 } }, `搜索「${props.query}」`),
+      h('span', { style: { color: MUTED, marginLeft: 8 } }, `${props.results.length} 条`),
+      h('div', { style: { flex: 1 } }),
+      h(
+        'button',
+        {
+          type: 'button',
+          onClick: props.onClear,
+          style: {
+            padding: '2px 8px',
+            borderRadius: 5,
+            border: LINE,
+            background: 'transparent',
+            color: 'inherit',
+            fontSize: 11,
+            fontFamily: 'inherit',
+            cursor: 'pointer'
+          }
+        },
+        '清除搜索'
+      )
+    ),
+    props.results.length === 0
+      ? h('div', { style: { color: MUTED, fontSize: 12, padding: '16px 0', textAlign: 'center' } }, '没有匹配的消息')
+      : props.results.map((match) =>
+          h(
+            'div',
+            { key: match.id, style: { borderBottom: LINE, padding: '5px 2px', fontSize: 12 } },
+            h(
+              'div',
+              { style: { display: 'flex', gap: 8, color: MUTED, fontSize: 10.5, marginBottom: 2 } },
+              h('span', {}, new Date(match.createdAt).toLocaleString()),
+              h('span', {}, kindOf(match.kind)),
+              h('span', {}, nameOf(match))
+            ),
+            h('div', { style: { lineHeight: 1.6 } }, match.snippet)
+          )
+        )
+  )
+}
+
 /** 房间详情：目标 + 验收 + 消息流 + 输入框。 */
 function RoomDetail(props: {
   room: Room
@@ -1390,6 +1464,10 @@ function RoomDetail(props: {
   const { room, messages, sending, error } = props
   const [draft, setDraft] = useState('')
   const [tab, setTab] = useState<'chat' | 'audit'>('chat')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<MessageMatch[] | null>(null)
+  const [searchBusy, setSearchBusy] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [returnOpen, setReturnOpen] = useState(false)
   const [returnNote, setReturnNote] = useState('')
   const [editing, setEditing] = useState(false)
@@ -1414,6 +1492,9 @@ function RoomDetail(props: {
     setEditPerBot(room.budget?.perBot ?? 800_000)
     setEditPerRoom(room.budget?.perRoom ?? 1_500_000)
     setEditing(false)
+    setSearchQuery('')
+    setSearchResults(null)
+    setSearchError(null)
   }, [room.id])
 
   const submit = () => {
@@ -1421,6 +1502,24 @@ function RoomDetail(props: {
     if (text === '' || sending) return
     setDraft('')
     props.onSend(text)
+  }
+
+  const runSearch = async (): Promise<void> => {
+    const query = searchQuery.trim()
+    if (query === '') {
+      setSearchResults(null)
+      setSearchError(null)
+      return
+    }
+    setSearchBusy(true)
+    setSearchError(null)
+    try {
+      setSearchResults(await searchRoomMessages(room.id, query, 30))
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : '搜索失败')
+    } finally {
+      setSearchBusy(false)
+    }
   }
 
   const paused = room.status === 'paused'
@@ -1732,14 +1831,58 @@ function RoomDetail(props: {
 
     h(
       'div',
-      { style: { display: 'flex', gap: 6, marginBottom: 8 } },
+      { style: { display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' } },
       tabButton('消息流', 'chat'),
-      tabButton('审计', 'audit')
+      tabButton('审计', 'audit'),
+      h('div', { style: { flex: 1 } }),
+      h('input', {
+        value: searchQuery,
+        placeholder: '搜索本房间消息…',
+        onChange: (e: { target: { value: string } }) => setSearchQuery(e.target.value),
+        onKeyDown: (e: { key: string }) => {
+          if (e.key === 'Enter') void runSearch()
+        },
+        style: { ...inputStyle, width: 190, padding: '4px 8px', fontSize: 11.5 }
+      }),
+      h(
+        'button',
+        {
+          type: 'button',
+          onClick: () => void runSearch(),
+          disabled: searchBusy,
+          style: {
+            padding: '4px 10px',
+            borderRadius: 6,
+            border: LINE,
+            background: 'transparent',
+            color: 'inherit',
+            fontSize: 11.5,
+            fontFamily: 'inherit',
+            cursor: searchBusy ? 'default' : 'pointer',
+            opacity: searchBusy ? 0.6 : 1
+          }
+        },
+        searchBusy ? '搜索中…' : '搜索'
+      )
     ),
+
+    searchError === null
+      ? null
+      : h('div', { style: { color: '#e5484d', fontSize: 11, marginBottom: 6 } }, searchError),
 
     tab === 'audit'
       ? h(AuditPanel, { roomId: room.id, members: room.members ?? [] })
-      : h(
+      : searchResults !== null
+        ? h(SearchResultsPanel, {
+            query: searchQuery.trim(),
+            results: searchResults,
+            members: room.members ?? [],
+            onClear: () => {
+              setSearchResults(null)
+              setSearchQuery('')
+            }
+          })
+        : h(
           'div',
           {
             style: {
