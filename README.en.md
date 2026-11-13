@@ -44,6 +44,7 @@ pnpm install:profile
 | Area | What you get |
 |---|---|
 | Rooms & acceptance | Goals, multiple checks, machine-judged `file:` / `cmd:`, warning when every check is prose |
+| New rooms | Start empty; members are always added explicitly |
 | First run | One-click demo room with three roles and machine-checkable acceptance |
 | Multi-bot work | Host plans, `@name` dispatch, task cards, handoff summaries |
 | Plan gate | confirm / auto modes; partial approval; skipped cards |

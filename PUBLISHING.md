@@ -5,7 +5,7 @@
 ## 0. 发布前检查
 
 ```powershell
-pnpm check            # 126 个用例必须全绿
+pnpm check            # 128 个用例必须全绿
 pnpm drill            # 假宿主全链路
 pnpm build
 ```

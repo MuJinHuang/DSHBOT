@@ -158,3 +158,23 @@ test('D2 删房间会一并删掉消息文件', async () => {
   assert.equal(existsSync(join(dataDir, 'rooms', roomId, 'messages.jsonl')), false)
   assert.equal(readDb(dataDir).rooms.some((room) => room.id === roomId), false)
 })
+
+test('迁移：members: [] 保持空房间，只有缺字段的老数据才补默认成员', async () => {
+  const empty = roomOf('room_explicit_empty')
+  empty.members = []
+  const legacy = roomOf('room_legacy_no_members')
+  delete legacy.members
+  seedDb(dataDir, {
+    version: 1,
+    rooms: [empty, legacy],
+    messages: [],
+    bots: []
+  })
+
+  const list = await api.api('rooms')
+  const explicit = list.data.rooms.find((room) => room.id === 'room_explicit_empty')
+  const migrated = list.data.rooms.find((room) => room.id === 'room_legacy_no_members')
+  assert.deepEqual(explicit.members, [], '空数组是明确的空房间，不能补成员')
+  assert.equal(migrated.members.length, 1, '缺 members 字段的老房间仍要补默认成员')
+  assert.equal(migrated.members[0].name, '小柯')
+})

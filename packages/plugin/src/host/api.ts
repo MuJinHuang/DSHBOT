@@ -83,20 +83,11 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-/** 库里什么都没有时，塞一只默认执行者，让新房间能立刻说话。 */
-function defaultMember(): Member {
-  return {
-    botId: 'bot_default',
-    name: '小柯',
-    role: 'worker',
-    avatar: '🧑‍💻',
-    status: 'idle',
-    tokensUsed: 0
-  }
-}
-
 /**
- * 建房时初始成员：团队模板优先；库里有货就不塞裸 Bot。
+ * 建房时初始成员：只有显式选了团队模板才拉人，否则就是空房间。
+ *
+ * 不再自动塞「小柯」：没有岗位卡的 Bot 会撞名、抢主笔，而且让"成员"这件事
+ * 变得不可预期。首次使用的引导交给 `POST /rooms/demo` 和空状态。
  *
  * @param db - 当前库
  * @param teamId - 可选的团队模板 id
@@ -112,7 +103,7 @@ function seedMembersFor(db: Database, teamId: unknown): Member[] | { error: stri
     if (members.length === 0) return { error: '这个团队模板里的 Bot 都已经不在库里了' }
     return members
   }
-  return db.bots.length === 0 ? [defaultMember()] : []
+  return []
 }
 
 /** 校验并构造一个新房间。 */

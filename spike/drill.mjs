@@ -52,6 +52,24 @@ async function mockDrill(options = {}) {
     assert(created.status === 201, `建房失败：${created.text}`)
     const roomId = created.data.room.id
 
+    // 新房间默认是空的：显式建一只 Bot 再拉进来
+    const bot = (
+      await api.api('bots', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: '演练执行者',
+          avatar: '🧪',
+          persona: '按房间要求创建文件。',
+          instructions: '必须真的写文件，然后用一句话说明。'
+        })
+      })
+    ).data.bot
+    const added = await api.api(`rooms/${roomId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ defId: bot.id, role: 'worker' })
+    })
+    assert(added.status === 201, `拉人失败：${added.text}`)
+
     const said = await api.api(`rooms/${roomId}/messages`, {
       method: 'POST',
       body: JSON.stringify({ text: '请生成演练产物' })

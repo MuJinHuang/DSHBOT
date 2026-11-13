@@ -87,8 +87,11 @@ export function messagesFile(roomId: string): string {
 }
 
 /**
- * 惰性迁移：老房间没有 members，补一只默认 Bot 接管它原来的会话；
+ * 惰性迁移：老房间**没有 members 字段**时，补一只默认 Bot 接管它原来的会话；
  * 没有 workspaceDir 的，补一个默认工作区。
+ *
+ * 注意：`members: []` 是合法的"空房间"，不能再塞默认成员——
+ * 否则新建的空房间一读库就会长出小柯。
  *
  * 不做独立迁移脚本——数据量小，读的时候顺手补最省事。
  *
@@ -100,7 +103,8 @@ function migrateRoom(room: Room): Room {
     room.workspaceDir === undefined || room.workspaceDir === ''
       ? { ...room, workspaceDir: join(roomsRoot(), room.id, 'work') }
       : room
-  if (Array.isArray(withWorkspace.members) && withWorkspace.members.length > 0) return withWorkspace
+  // 有 members 字段就尊重它（空数组也是明确的选择）；只有老数据完全没这个字段才补
+  if (Array.isArray(withWorkspace.members)) return withWorkspace
   return {
     ...withWorkspace,
     members: [

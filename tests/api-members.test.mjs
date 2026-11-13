@@ -99,6 +99,19 @@ test('A1 成员重名会被拒绝（409），不会悄悄出现两个同名', as
   assert.equal(conflict.status, 409)
 })
 
+test('新房默认是空房间；没有 Bot 时发消息只给引导', async () => {
+  const room = await newRoom()
+  assert.deepEqual(room.members, [], '建房不应该再自动塞默认成员')
+
+  const said = await api.api(`rooms/${room.id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ text: '开始吧' })
+  })
+  assert.equal(said.status, 200, said.text)
+  assert.equal(said.data.skipped, true)
+  assert.match(said.data.messages.at(-1).text, /还没有 Bot/)
+})
+
 test('A2 成员移除后 @ 不到它', async () => {
   const room = await newRoom()
   const added = await api.api(`rooms/${room.id}/members`, {

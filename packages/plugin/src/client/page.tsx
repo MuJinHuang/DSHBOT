@@ -1925,7 +1925,9 @@ function RoomDetail(props: {
             : null,
           messages.length === 0
             ? h('div', { style: { textAlign: 'center', color: MUTED, fontSize: 12, padding: '24px 0' } },
-                '还没有消息。在下面说一句，Bot 就会接活。')
+                (room.members ?? []).length === 0
+                  ? '房间里还没有 Bot。先从右侧「拉一个 Bot」，或去 Bot 库建一只。'
+                  : '还没有消息。在下面说一句，Bot 就会接活。')
             : messages.map((m) =>
                 h(MessageRow, {
                   key: m.id,

@@ -928,13 +928,16 @@ export async function handleRoomMessage(
     saveDb(before)
 
     if (!willRun || nobody) {
+      const noMembers = (room.members ?? []).length === 0
       const hint = makeMessage(
         roomId,
         'system',
         'system',
-        nobody
-          ? '房间里有多只 Bot，没有 @ 谁，这条只记录。用 @名字 指给某一只，或拉一只总管进来。'
-          : '房间设成了「仅 @ 响应」，这条只记录。'
+        noMembers
+          ? '房间里还没有 Bot。先从右侧「拉一个 Bot」，或去 Bot 库建一只，再来派活。'
+          : nobody
+            ? '房间里有多只 Bot，没有 @ 谁，这条只记录。用 @名字 指给某一只，或拉一只总管进来。'
+            : '房间设成了「仅 @ 响应」，这条只记录。'
       )
       appendMessages(roomId, [hint])
       return { messages: [userMessage, hint], skipped: true }    }
