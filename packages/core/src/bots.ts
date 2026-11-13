@@ -6,7 +6,7 @@
  * 因为 DSH 是按 preset 挂载工具的，硬塞白名单只能是假的。
  */
 import { newId, nowIso } from './ids.js'
-import type { Member } from './types.js'
+import type { Member, ModelRef } from './types.js'
 
 /** 一个可复用的 Bot 定义。 */
 export interface BotDefinition {
@@ -21,6 +21,8 @@ export interface BotDefinition {
   instructions?: string
   /** 部署里的 agent preset id，决定这个 Bot 能用到哪些工具。 */
   agentPreset?: string
+  /** 这个 Bot 使用的模型；留空跟随 DSH 默认。 */
+  model?: ModelRef
   createdAt: string
   updatedAt: string
 }
@@ -133,6 +135,7 @@ export function makeBot(input: {
   expertise?: string
   instructions?: string
   agentPreset?: string
+  model?: ModelRef
 }): BotDefinition {
   const now = nowIso()
   return {
@@ -143,6 +146,7 @@ export function makeBot(input: {
     ...(input.expertise === undefined ? {} : { expertise: input.expertise }),
     ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
     ...(input.agentPreset === undefined ? {} : { agentPreset: input.agentPreset }),
+    ...(input.model === undefined ? {} : { model: input.model }),
     createdAt: now,
     updatedAt: now
   }
@@ -168,6 +172,7 @@ export function memberFromBot(bot: BotDefinition, role: 'host' | 'worker' = 'wor
     ...(bot.persona === undefined ? {} : { persona: bot.persona }),
     ...(bot.expertise === undefined ? {} : { expertise: bot.expertise }),
     ...(bot.instructions === undefined ? {} : { instructions: bot.instructions }),
-    ...(bot.agentPreset === undefined ? {} : { agentPreset: bot.agentPreset })
+    ...(bot.agentPreset === undefined ? {} : { agentPreset: bot.agentPreset }),
+    ...(bot.model === undefined ? {} : { model: bot.model })
   }
 }

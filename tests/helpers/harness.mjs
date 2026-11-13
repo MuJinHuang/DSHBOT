@@ -95,6 +95,7 @@ let sessionCounter = 0
  */
 export function fakeCtx(options = {}) {
   const created = []
+  const modelSelections = []
   const replyOf = (info) =>
     typeof options.reply === 'function' ? options.reply(info) : options.reply ?? '收到。'
 
@@ -175,9 +176,21 @@ export function fakeCtx(options = {}) {
           if (options.failCreate === true) throw new Error('mock: 模型不可用')
           return { agent: makeAgent(request.cwd) }
         }
-      }
+      },
+      selectModel: async (request) => {
+        modelSelections.push(request)
+        return { selected: { provider: request.provider, model: request.model } }
+      },
+      modelCatalog: async () =>
+        options.modelCatalog ?? {
+          default: { provider: 'mock', model: 'mock-1' },
+          groups: [{ id: 'mock', name: 'Mock', models: [{ id: 'mock-1', name: 'Mock One' }] }],
+          failures: []
+        }
     },
     /** 数一共起了几个会话。 */
-    createdSessions: created
+    createdSessions: created,
+    /** 记录每次按 Bot 选模型的请求。 */
+    modelSelections
   }
 }

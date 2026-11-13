@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 
 import {
   extractFiles,
+  extractPlanDependencies,
   normalizeAcceptanceLine,
   normalizeVerdict,
   parseChecks,
@@ -212,4 +213,17 @@ test('normalizeAcceptanceLine：不动正常文本', () => {
 
 test('parseCheckSpec：带序号的谓词也能识别', () => {
   assert.deepEqual(parseCheckSpec('1. file:README.md'), { kind: 'file', value: 'README.md' })
+})
+
+test('extractPlanDependencies：中文标记、多个依赖、去 @', () => {
+  const parsed = extractPlanDependencies('写文档 [依赖:@老周, 小柯]')
+  assert.equal(parsed.task, '写文档')
+  assert.deepEqual(parsed.names, ['老周', '小柯'])
+})
+
+test('extractPlanDependencies：英文 depends 也认，没标记返回空', () => {
+  const parsed = extractPlanDependencies('write docs [depends: laozhou]')
+  assert.equal(parsed.task, 'write docs')
+  assert.deepEqual(parsed.names, ['laozhou'])
+  assert.deepEqual(extractPlanDependencies('普通任务'), { task: '普通任务', names: [] })
 })

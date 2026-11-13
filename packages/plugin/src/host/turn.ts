@@ -12,6 +12,8 @@
 import { canStartRun, evaluateBudget, formatTokens, newId, nowIso } from '@dshbot/core'
 import {
   extractFiles,
+  extractPlanDependencies,
+  orderPlanItems,
   parseChecks,
   parseCheckSpec,
   parseGitStatus,
@@ -263,7 +265,7 @@ export function buildContext(room: Room, member: Member, task: string): string {
 
   const roleLines = [
     member.role === 'host'
-      ? '你是本房间的总管：先用 1-2 次工具确认现状，然后给出结论；该派人做的用 @名字 派活，派活时把要求写清楚。不要自己深挖细节。**不要调用 subagent 工具**——房间里的人要用 @名字 指派，不用子代理。**只派真正需要动手的活**：像「待命」「收到请回」这种不要派成任务（那会白烧一轮钱），直接说一句就行。**有先后依赖的活不要同时派**：先派上游，等它交付了再派下游；或者把下游写成「若上游产物缺失，只报缺失，不要代写」。'
+      ? '你是本房间的总管：先用 1-2 次工具确认现状，然后给出结论；该派人做的用 @名字 派活，派活时把要求写清楚。不要自己深挖细节。**不要调用 subagent 工具**——房间里的人要用 @名字 指派，不用子代理。**只派真正需要动手的活**：像「待命」「收到请回」这种不要派成任务（那会白烧一轮钱），直接说一句就行。**有先后依赖的活**：在下游任务行末加 `[依赖:@名字]`，房间会按依赖顺序执行，并把上游结论交给下游；不要写成“等上游做完再派”，也不要省略下游。'
       : `你是执行 Bot「${member.name}」：只做分给你的那一件事，最多用 5 次工具，够用就下结论。必须给出一段文字结论，不要只调工具不说话。不要调用 subagent 工具。如果你要跑 pnpm / npm 之类的构建命令却报 spawn EPERM，那是沙箱限制，**别重试**，直接把结论交回来——构建和验收由房间负责。`,
     // 岗位设定：房间规则在上，岗位在下，冲突时上面的规则优先
     ...(member.persona === undefined || member.persona === ''
@@ -427,7 +429,8 @@ async function runMember(
       (event) => {
         setLive(roomId, member.botId, `正在 ${event.name}…`)
       },
-      member.agentPreset
+      member.agentPreset,
+      member.model
     )
     // 被超时截断时必须说出来，否则半截结论会被当成完整结论
     const truncatedNote = outcome.truncated
@@ -802,7 +805,17 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
   // 全部验收点都能机器判定时，不必请模型，省一轮钱和时间
   if (textPoints.length > 0) {
     // 用全新会话判：避免验收人的历史里塞满工具调用，导致它习惯性又去翻文件
-    const outcome = await runOnce(ctx, judge, dir)
+    const outcome = await runOnce(
+      ctx,
+      judge,
+      dir,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      judgeMember.agentPreset,
+      judgeMember.model
+    )
     judged = parseChecks(outcome.text, textPoints)
     spend += outcome.usage.total
     sessionId = judgeMember.sessionId ?? outcome.sessionId
@@ -817,7 +830,17 @@ export async function deliverRoom(ctx: AgentContext, roomId: string): Promise<De
         '元素格式：{"verdict":"pass|fail|unsure","reason":"一句话理由"}'
       ].join('\n')
       try {
-        const second = await runOnce(ctx, retry, dir)
+        const second = await runOnce(
+          ctx,
+          retry,
+          dir,
+          undefined,
+          0,
+          undefined,
+          undefined,
+          judgeMember.agentPreset,
+          judgeMember.model
+        )
         const retried = parseChecks(second.text, textPoints)
         if (retried.some((c) => c.verdict !== 'unsure')) {
           judged = retried
@@ -963,8 +986,26 @@ export async function handleRoomMessage(
         const plans = receivers.map((receiver) => ({
           receiver,
           task: taskFor(reply, receiver.name),
-          itemId: newId('item')
+          itemId: newId('item'),
+          dependsOn: [] as string[]
         }))
+
+        // 总管可以用 `[依赖:@名字]` 声明顺序；名字映射到本批 item id
+        const itemByName = new Map<string, string>()
+        for (const plan of plans) {
+          if (!itemByName.has(plan.receiver.name)) itemByName.set(plan.receiver.name, plan.itemId)
+        }
+        for (const plan of plans) {
+          const parsed = extractPlanDependencies(plan.task)
+          if (parsed.task !== '') plan.task = parsed.task
+          plan.dependsOn = [
+            ...new Set(
+              parsed.names
+                .map((name) => itemByName.get(name))
+                .filter((id): id is string => id !== undefined && id !== plan.itemId)
+            )
+          ]
+        }
         const needsConfirm = fresh.mode === 'confirm'
         const planId = newId('plan')
 
@@ -1009,6 +1050,7 @@ export async function handleRoomMessage(
             status: needsConfirm ? 'pending' : 'running',
             planId,
             itemId: plan.itemId,
+            ...(plan.dependsOn.length === 0 ? {} : { dependsOn: plan.dependsOn }),
             ...(seat?.files === undefined ? {} : { files: seat.files })
           }
           card.botId = plan.receiver.botId
@@ -1029,7 +1071,8 @@ export async function handleRoomMessage(
                 botId: plan.receiver.botId,
                 name: plan.receiver.name,
                 task: plan.task,
-                files: extractFiles(plan.task)
+                files: extractFiles(plan.task),
+                ...(plan.dependsOn.length === 0 ? {} : { dependsOn: plan.dependsOn })
               }))
             }
             waiting.updatedAt = nowIso()
@@ -1060,7 +1103,8 @@ export async function handleRoomMessage(
             botId: plan.receiver.botId,
             name: plan.receiver.name,
             task: plan.task,
-            itemId: plan.itemId
+            itemId: plan.itemId,
+            ...(plan.dependsOn.length === 0 ? {} : { dependsOn: plan.dependsOn })
           }))
         )
         produced.push(...results)
@@ -1102,7 +1146,13 @@ export async function runPlan(
   roomId: string,
   hostBotId: string,
   hostName: string,
-  items: { botId: string; name: string; task: string; itemId?: string }[]
+  items: {
+    botId: string
+    name: string
+    task: string
+    itemId?: string
+    dependsOn?: string[]
+  }[]
 ): Promise<Message[]> {
   const produced: Message[] = []
   const room = loadDb().rooms.find((r) => r.id === roomId)
@@ -1118,21 +1168,40 @@ export async function runPlan(
         tokensUsed: 0
       },
       task: item.task,
-      ...(item.itemId === undefined ? {} : { itemId: item.itemId })
+      itemId: item.itemId,
+      dependsOn: item.dependsOn ?? []
     }
   })
 
-  const results = await runWithLimit(plans, DISPATCH_CONCURRENCY, async (plan) => {
-    const sub = await runMember(ctx, roomId, plan.receiver, plan.task, plan.task)
-    return { plan, sub }
-  })
+  // 每个计划项一个稳定 key：老数据没 itemId 时用下标兜底
+  const keys = plans.map((plan, index) => plan.itemId ?? `__idx_${index}`)
+  const order = orderPlanItems(
+    plans.map((plan, index) => ({
+      id: keys[index],
+      dependsOn: plan.dependsOn
+    }))
+  )
+  if (order.cycle || order.missing.length > 0) {
+    const note = makeMessage(
+      roomId,
+      'system',
+      'system',
+      order.cycle
+        ? '计划依赖成环，整批没有执行。请检查各任务的「依赖」。'
+        : `计划引用了不存在的依赖（${order.missing.join('、')}），整批没有执行。`
+    )
+    appendMessages(roomId, [note])
+    return [note]
+  }
 
-  for (const item of results) {
-    if (item === null) continue
-    const { plan, sub } = item
-    produced.push(...sub.messages)
+  const done = new Map<string, { ok: boolean; text: string; name: string }>()
+  const blocked = new Set<string>()
 
-    const summary = (sub.outcome?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
+  const card = (
+    plan: (typeof plans)[number],
+    status: 'done' | 'failed' | 'blocked',
+    summary: string
+  ): Message => {
     const doneCard = makeMessage(
       roomId,
       'assignment',
@@ -1144,14 +1213,64 @@ export async function runPlan(
       from: hostName,
       to: plan.receiver.name,
       botId: plan.receiver.botId,
-      status: sub.outcome === undefined ? 'failed' : 'done',
+      status,
       ...(plan.itemId === undefined ? {} : { itemId: plan.itemId }),
-      // Handoff：把执行者的结论摘要挂在卡上，下游不用翻消息流
       ...(summary === '' ? {} : { result: summary })
     }
     doneCard.botId = plan.receiver.botId
     appendMessages(roomId, [doneCard])
     produced.push(doneCard)
+    return doneCard
+  }
+
+  for (const level of order.levels) {
+    const ready: { plan: (typeof plans)[number]; key: string }[] = []
+    for (const index of level) {
+      const plan = plans[index]
+      const key = keys[index]
+      if (plan === undefined || key === undefined) continue
+
+      // 上游被阻塞/失败：下游不再执行，明确标 blocked
+      const failedDep = plan.dependsOn.find((dep) => {
+        const outcome = done.get(dep)
+        return outcome === undefined || !outcome.ok
+      })
+      if (failedDep !== undefined) {
+        blocked.add(key)
+        card(plan, 'blocked', `上游未完成（${failedDep}），已跳过`)
+        continue
+      }
+      ready.push({ plan, key })
+    }
+
+    const results = await runWithLimit(ready, DISPATCH_CONCURRENCY, async ({ plan, key }) => {
+      const upstream = plan.dependsOn
+        .map((dep) => done.get(dep))
+        .filter((item): item is { ok: boolean; text: string; name: string } => item !== undefined)
+      const contextText = upstream
+        .map((item) => `【上游 ${item.name} 的结论】\n${item.text.replace(/\s+/g, ' ').trim().slice(0, 800)}`)
+        .join('\n\n')
+      const task =
+        contextText === ''
+          ? plan.task
+          : `${plan.task}\n\n${contextText}\n\n请基于上游结论继续；上游已经做过的不要重复。`
+      const sub = await runMember(ctx, roomId, plan.receiver, task, plan.task)
+      return { plan, key, sub }
+    })
+
+    for (const item of results) {
+      if (item === null) continue
+      const { plan, key, sub } = item
+      produced.push(...sub.messages)
+      const ok = sub.outcome !== undefined
+      done.set(key, {
+        ok,
+        text: sub.outcome?.text ?? '',
+        name: plan.receiver.name
+      })
+      const summary = (sub.outcome?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
+      card(plan, ok ? 'done' : 'failed', summary)
+    }
   }
 
   return produced

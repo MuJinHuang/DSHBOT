@@ -51,6 +51,12 @@ export interface Budget {
   perRoom: number
 }
 
+/** 模型引用：provider + model id，与 DSH 的模型目录一致。 */
+export interface ModelRef {
+  provider: string
+  model: string
+}
+
 /** Bot 的一张卡，可导出、可分享。 */
 export interface BotCard {
   id: string
@@ -61,8 +67,8 @@ export interface BotCard {
   tools: string[]
   /** 技能包标识。 */
   skills: string[]
-  /** 模型标识，留空表示跟随默认。 */
-  model?: string
+  /** 模型；留空表示跟随 DSH 默认。 */
+  model?: ModelRef
   budget: Budget
 }
 
@@ -107,6 +113,8 @@ export interface Member {
   instructions?: string
   /** 部署里的 agent preset，决定这个 Bot 能用哪些工具。 */
   agentPreset?: string
+  /** 本 Bot 使用的模型；留空跟随默认。 */
+  model?: ModelRef
 }
 
 /** 计划里的一件活。 */
@@ -117,6 +125,8 @@ export interface PlanItem {
   name: string
   task: string
   files: string[]
+  /** 依赖的上游 item id；为空表示可以立即开跑。 */
+  dependsOn?: string[]
 }
 
 /** 等待人确认的分派计划。 */

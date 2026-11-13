@@ -39,6 +39,29 @@ export function resolveTargets(room: Room, mentions: string[]): Member[] {
   return host === undefined ? [] : [host]
 }
 
+/**
+ * 解析总管任务里的依赖标记：`[依赖:@老周]` / `[depends:老周,小柯]`。
+ *
+ * 标记会从任务正文里删掉；名字去重、去 `@`。
+ *
+ * @param text - 总管派给某个 Bot 的任务原文
+ */
+export function extractPlanDependencies(text: string): { task: string; names: string[] } {
+  const names = new Set<string>()
+  const pattern = /\[(?:依赖|depends?)\s*[:：]?\s*([^\]]+)\]/gi
+  const task = text
+    .replace(pattern, (_match, raw: string) => {
+      for (const piece of raw.split(/[,，、\s]+/)) {
+        const name = piece.replace(/^@/, '').trim()
+        if (name !== '') names.add(name)
+      }
+      return ''
+    })
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+  return { task, names: [...names] }
+}
+
 /** 从任务文本里抽文件路径，用作软写锁声明。 */
 export function extractFiles(text: string): string[] {
   const found = new Set<string>()

@@ -466,7 +466,9 @@ function AssignmentRow(props: { message: Message }) {
           ? '已跳过'
           : status === 'rejected'
             ? '已否决'
-            : status === 'pending'
+            : status === 'blocked'
+              ? '已阻塞'
+              : status === 'pending'
               ? '待确认'
               : status === 'running'
                 ? '进行中'
@@ -476,9 +478,11 @@ function AssignmentRow(props: { message: Message }) {
       ? '#2f9e44'
       : status === 'failed'
         ? '#e5484d'
-        : status === 'skipped' || status === 'rejected' || status === 'pending'
-          ? MUTED
-          : '#2f6fed'
+        : status === 'blocked'
+          ? '#e8a33d'
+          : status === 'skipped' || status === 'rejected' || status === 'pending'
+            ? MUTED
+            : '#2f6fed'
 
   return h(
     'div',
@@ -1240,7 +1244,11 @@ function AuditPanel(props: { roomId: string; members: Member[] }) {
 function PlanBanner(props: {
   plan: NonNullable<Room['pendingPlan']>
   busy: boolean
-  onDecide: (action: 'approve' | 'reject', itemIds?: string[]) => void
+  onDecide: (
+    action: 'approve' | 'reject',
+    itemIds?: string[],
+    dependencies?: Record<string, string[]>
+  ) => void
 }) {
   const { plan } = props
   const selectable = plan.items.every((item) => item.id !== undefined)
@@ -1248,9 +1256,11 @@ function PlanBanner(props: {
     item.id ?? `legacy-${index}`
   const allKeys = plan.items.map((item, index) => keyOf(item, index))
   const [picked, setPicked] = useState<string[]>(allKeys)
+  const [depEdits, setDepEdits] = useState<Record<string, string>>({})
 
   useEffect(() => {
     setPicked(plan.items.map((item, index) => keyOf(item, index)))
+    setDepEdits({})
   }, [plan.id])
 
   const toggle = (key: string): void => {
@@ -1267,7 +1277,18 @@ function PlanBanner(props: {
     const ids = plan.items
       .filter((item, index) => item.id !== undefined && picked.includes(keyOf(item, index)))
       .map((item) => item.id as string)
-    props.onDecide('approve', ids)
+    const dependencies: Record<string, string[]> = {}
+    for (const item of plan.items) {
+      if (item.id === undefined) continue
+      const edit = depEdits[item.id]
+      if (edit === undefined || edit === '__keep__') continue
+      dependencies[item.id] = edit === '' ? [] : [edit]
+    }
+    props.onDecide(
+      'approve',
+      ids,
+      Object.keys(dependencies).length === 0 ? undefined : dependencies
+    )
   }
 
   const pickedCount = selectable ? picked.length : plan.items.length
@@ -1336,25 +1357,70 @@ function PlanBanner(props: {
         '否决'
       )
     ),
-    ...plan.items.map((item, index) =>
-      h(
+    ...plan.items.map((item, index) => {
+      const itemKey = keyOf(item, index)
+      const depNames = (item.dependsOn ?? [])
+        .map((dep) => plan.items.find((candidate) => candidate.id === dep)?.name)
+        .filter((name): name is string => name !== undefined)
+      const depValue = item.id === undefined ? '__keep__' : depEdits[item.id] ?? '__keep__'
+      return h(
         'div',
         {
-          key: keyOf(item, index),
-          style: { display: 'flex', gap: 6, marginBottom: 3, lineHeight: 1.5, alignItems: 'flex-start' }
+          key: itemKey,
+          style: { display: 'flex', gap: 6, marginBottom: 6, lineHeight: 1.5, alignItems: 'flex-start' }
         },
         selectable
           ? h('input', {
               type: 'checkbox',
-              checked: picked.includes(keyOf(item, index)),
-              onChange: () => toggle(keyOf(item, index)),
+              checked: picked.includes(itemKey),
+              onChange: () => toggle(itemKey),
               style: { marginTop: 3 }
             })
           : null,
-        h('span', { style: { color: MUTED, flexShrink: 0 } }, `${item.name}：`),
-        h('span', { style: { opacity: selectable && !picked.includes(keyOf(item, index)) ? 0.5 : 1 } }, item.task)
+        h(
+          'div',
+          { style: { flex: 1, opacity: selectable && !picked.includes(itemKey) ? 0.5 : 1 } },
+          h('div', {}, h('span', { style: { color: MUTED } }, `${item.name}：`), item.task),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, fontSize: 10.5, color: MUTED } },
+            '依赖：',
+            h(
+              'select',
+              {
+                value: depValue,
+                onChange: (e: { target: { value: string } }) => {
+                  if (item.id === undefined) return
+                  setDepEdits((current) => ({ ...current, [item.id as string]: e.target.value }))
+                },
+                style: {
+                  ...inputStyle,
+                  width: 'auto',
+                  maxWidth: 260,
+                  padding: '1px 4px',
+                  fontSize: 10.5
+                }
+              },
+              h(
+                'option',
+                { value: '__keep__' },
+                depNames.length === 0 ? '沿用计划（无依赖）' : `沿用计划（等 ${depNames.join('、')}）`
+              ),
+              h('option', { value: '' }, '无依赖'),
+              ...plan.items
+                .filter((candidate) => candidate.id !== undefined && candidate.id !== item.id)
+                .map((candidate) =>
+                  h(
+                    'option',
+                    { key: candidate.id as string, value: candidate.id as string },
+                    `等待 ${candidate.name}：${candidate.task.slice(0, 24)}`
+                  )
+                )
+            )
+          )
+        )
       )
-    )
+    })
   )
 }
 
@@ -1457,7 +1523,11 @@ function RoomDetail(props: {
   onExportAudit: () => void
   versions: VersionEntry[]
   onRollback: (hash: string) => void
-  onDecidePlan: (action: 'approve' | 'reject', itemIds?: string[]) => void
+  onDecidePlan: (
+    action: 'approve' | 'reject',
+    itemIds?: string[],
+    dependencies?: Record<string, string[]>
+  ) => void
   planBusy: boolean
   hasMore: boolean
   loadingOlder: boolean
@@ -2409,12 +2479,16 @@ export function RoomsPage() {
   // 批准 / 否决计划
   const [planBusy, setPlanBusy] = useState(false)
   const decidePlanHandler = useCallback(
-    async (action: 'approve' | 'reject', itemIds?: string[]) => {
+    async (
+      action: 'approve' | 'reject',
+      itemIds?: string[],
+      dependencies?: Record<string, string[]>
+    ) => {
       if (selectedId === null) return
       setPlanBusy(true)
       setSendError(null)
       try {
-        const result = await decidePlan(selectedId, action, itemIds)
+        const result = await decidePlan(selectedId, action, itemIds, dependencies)
         setMessages(await listMessages(selectedId))
         const list = await listRooms()
         setRooms(list)
@@ -2866,8 +2940,11 @@ export function RoomsPage() {
                   onExportAudit: () => void exportAudit(),
                   versions,
                   onRollback: (hash: string) => void doRollback(hash),
-                  onDecidePlan: (action: 'approve' | 'reject', itemIds?: string[]) =>
-                    void decidePlanHandler(action, itemIds),
+                  onDecidePlan: (
+                    action: 'approve' | 'reject',
+                    itemIds?: string[],
+                    dependencies?: Record<string, string[]>
+                  ) => void decidePlanHandler(action, itemIds, dependencies),
                   planBusy,
                   hasMore,
                   loadingOlder,

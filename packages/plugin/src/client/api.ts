@@ -5,7 +5,7 @@
  * web 下解析成 `/dshbot/api/...`，Electron 下解析成 `dsh://app/dshbot/api/...`，
  * 由主进程的协议处理转发给本地 webserver。这是 DSH 自家插件的既有约定。
  */
-import type { BackupFile, Delivery, Member, Message, MessageMatch, Room } from '@dshbot/core'
+import type { BackupFile, Delivery, Member, Message, MessageMatch, ModelRef, Room } from '@dshbot/core'
 
 const BASE = 'dshbot/api'
 
@@ -151,6 +151,7 @@ export async function addMember(
     expertise?: string
     instructions?: string
     agentPreset?: string
+    model?: ModelRef | null
   }
 ): Promise<{ member: Member; room: Room }> {
   return request<{ member: Member; room: Room }>(`rooms/${roomId}/members`, {
@@ -171,6 +172,7 @@ export async function updateMember(
     expertise?: string
     instructions?: string
     agentPreset?: string
+    model?: ModelRef | null
   }
 ): Promise<{ member: Member; room: Room }> {
   return request<{ member: Member; room: Room }>(`rooms/${roomId}/members/${botId}`, {
@@ -261,12 +263,38 @@ export interface BotCard {
   expertise?: string
   instructions?: string
   agentPreset?: string
+  model?: ModelRef | null
 }
 
 /** 部署里可选的工具集（agent preset）。 */
 export interface PresetEntry {
   id: string
   label: string
+}
+
+/** 模型目录（来自 DSH 的 llm registry）。 */
+export interface ModelEntry {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface ModelGroup {
+  id: string
+  name: string
+  models: ModelEntry[]
+}
+
+export interface ModelCatalog {
+  default?: ModelRef | null
+  groups: ModelGroup[]
+  failures?: { id: string; name: string; message: string }[]
+}
+
+/** 列出当前部署可路由的模型。 */
+export async function listModels(): Promise<ModelCatalog> {
+  const data = await request<{ catalog: ModelCatalog }>('models')
+  return data.catalog ?? { groups: [] }
 }
 
 /** 列 Bot 库。 */
@@ -323,6 +351,7 @@ export interface BotExport {
     expertise?: string
     instructions?: string
     agentPreset?: string
+    model?: ModelRef
   }
 }
 
@@ -421,11 +450,16 @@ export async function fetchDiff(
 export async function decidePlan(
   roomId: string,
   action: 'approve' | 'reject',
-  itemIds?: string[]
+  itemIds?: string[],
+  dependencies?: Record<string, string[]>
 ): Promise<{ messages: Message[]; room?: Room }> {
   return request<{ messages: Message[]; room?: Room }>(`rooms/${roomId}/plan`, {
     method: 'POST',
-    body: JSON.stringify({ action, ...(itemIds === undefined ? {} : { itemIds }) })
+    body: JSON.stringify({
+      action,
+      ...(itemIds === undefined ? {} : { itemIds }),
+      ...(dependencies === undefined ? {} : { dependencies })
+    })
   })
 }
 

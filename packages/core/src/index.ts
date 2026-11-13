@@ -12,6 +12,7 @@ export {
   parseMentions,
   resolveTargets,
   extractFiles,
+  extractPlanDependencies,
   summarizeArgs,
   normalizeVerdict,
   parseChecks,
@@ -35,3 +36,5 @@ export { splitPersona, makeBot, memberFromBot } from './bots.js'
 export type { BotDefinition, PersonaSplit } from './bots.js'
 export { makeBackup, validateBackup } from './backup.js'
 export type { BackupCheck, BackupFile } from './backup.js'
+export { orderPlanItems } from './dag.js'
+export type { DagItem, DagOrder } from './dag.js'

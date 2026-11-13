@@ -12,8 +12,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { acceptanceWarning, auditRecords, makeBackup, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, parseMentions, searchMessages, splitPersona, toJsonl, validateBackup } from '@dshbot/core'
-import type { BotDefinition, Budget, Member, Message, Room, TeamTemplate } from '@dshbot/core'
+import { acceptanceWarning, auditRecords, makeBackup, makeBot, memberFromBot, newId, normalizeAcceptanceLine, nowIso, orderPlanItems, parseMentions, searchMessages, splitPersona, toJsonl, validateBackup } from '@dshbot/core'
+import type { BotDefinition, Budget, Member, Message, ModelRef, Room, TeamTemplate } from '@dshbot/core'
 import type { AgentContext } from './agent.js'
 import { listWorkspaceFiles, readWorkspaceFile } from './files.js'
 import type { Database } from './store.js'
@@ -81,6 +81,22 @@ async function readJson(req: IncomingMessage, maxBytes = MAX_BODY): Promise<unkn
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+/** 解析模型入参：undefined = 不改，null/'' = 清空，对象 = 设置。 */
+type ModelInput =
+  | { ok: true; value: ModelRef | null | undefined }
+  | { ok: false }
+
+function parseModelInput(value: unknown): ModelInput {
+  if (value === undefined) return { ok: true, value: undefined }
+  if (value === null || value === '') return { ok: true, value: null }
+  if (typeof value !== 'object' || Array.isArray(value)) return { ok: false }
+  const raw = value as Record<string, unknown>
+  if (!isNonEmptyString(raw.provider) || !isNonEmptyString(raw.model)) {
+    return { ok: false }
+  }
+  return { ok: true, value: { provider: raw.provider.trim(), model: raw.model.trim() } }
 }
 
 /**
@@ -199,6 +215,19 @@ export function createHandler(ctx: AgentContext) {
       // ---- /presets（当前部署可选的 agent preset，决定工具集）----
       if (parts.length === 1 && parts[0] === 'presets') {
         send(res, 200, { presets: listPresets(ctx), defaultPreset: 'standard' })
+        return
+      }
+
+      // ---- /models（当前部署可路由的模型目录）----
+      if (parts.length === 1 && parts[0] === 'models' && method === 'GET') {
+        let catalog: unknown = { default: null, groups: [], failures: [] }
+        try {
+          const listed = await ctx.sessionController?.modelCatalog?.()
+          if (listed !== undefined) catalog = listed
+        } catch {
+          /* 服务不在就返回空目录，表单退回“跟随默认” */
+        }
+        send(res, 200, { catalog })
         return
       }
 
@@ -355,13 +384,21 @@ export function createHandler(ctx: AgentContext) {
           }
           const text = (key: string): string | undefined =>
             isNonEmptyString(card[key]) ? (card[key] as string).trim() : undefined
+          const modelInput = parseModelInput(card.model)
+          if (!modelInput.ok) {
+            send(res, 400, { error: 'model 必须是 {provider, model}' })
+            return
+          }
           const bot = makeBot({
             name: text('name') as string,
             ...(text('avatar') === undefined ? {} : { avatar: text('avatar') as string }),
             ...(text('persona') === undefined ? {} : { persona: text('persona') as string }),
             ...(text('expertise') === undefined ? {} : { expertise: text('expertise') as string }),
             ...(text('instructions') === undefined ? {} : { instructions: text('instructions') as string }),
-            ...(text('agentPreset') === undefined ? {} : { agentPreset: text('agentPreset') as string })
+            ...(text('agentPreset') === undefined ? {} : { agentPreset: text('agentPreset') as string }),
+            ...(modelInput.value === undefined || modelInput.value === null
+              ? {}
+              : { model: modelInput.value })
           })
           const db = loadDb()
           db.bots.push(bot)
@@ -388,7 +425,8 @@ export function createHandler(ctx: AgentContext) {
               ...(bot.persona === undefined ? {} : { persona: bot.persona }),
               ...(bot.expertise === undefined ? {} : { expertise: bot.expertise }),
               ...(bot.instructions === undefined ? {} : { instructions: bot.instructions }),
-              ...(bot.agentPreset === undefined ? {} : { agentPreset: bot.agentPreset })
+              ...(bot.agentPreset === undefined ? {} : { agentPreset: bot.agentPreset }),
+              ...(bot.model === undefined ? {} : { model: bot.model })
             }
           })
           return
@@ -414,6 +452,11 @@ export function createHandler(ctx: AgentContext) {
           const split = isNonEmptyString(input.text)
             ? splitPersona(input.text)
             : { persona: '', expertise: '', instructions: '' }
+          const modelInput = parseModelInput(input.model)
+          if (!modelInput.ok) {
+            send(res, 400, { error: 'model 必须是 {provider, model}' })
+            return
+          }
           const bot = makeBot({
             name: input.name,
             avatar: isNonEmptyString(input.avatar) ? input.avatar : undefined,
@@ -434,7 +477,10 @@ export function createHandler(ctx: AgentContext) {
                 : split.instructions,
             agentPreset: isNonEmptyString(input.agentPreset)
               ? input.agentPreset.trim()
-              : undefined
+              : undefined,
+            ...(modelInput.value === undefined || modelInput.value === null
+              ? {}
+              : { model: modelInput.value })
           })
           const db = loadDb()
           db.bots.push(bot)
@@ -455,6 +501,13 @@ export function createHandler(ctx: AgentContext) {
             if (isNonEmptyString(input[key])) target[key] = input[key].trim()
             else if (input[key] === '') delete target[key]
           }
+          const modelInput = parseModelInput(input.model)
+          if (!modelInput.ok) {
+            send(res, 400, { error: 'model 必须是 {provider, model}' })
+            return
+          }
+          if (modelInput.value === null) delete target.model
+          else if (modelInput.value !== undefined) target.model = modelInput.value
           target.updatedAt = nowIso()
           saveDb(db)
           send(res, 200, { bot: target })
@@ -797,6 +850,7 @@ export function createHandler(ctx: AgentContext) {
           expertise?: unknown
           instructions?: unknown
           agentPreset?: unknown
+          model?: unknown
         }
         const db = loadDb()
         const target = db.rooms.find((r) => r.id === roomId)
@@ -826,6 +880,12 @@ export function createHandler(ctx: AgentContext) {
 
         const pick = (fromInput: unknown, fromDef: string | undefined): string | undefined =>
           isNonEmptyString(fromInput) ? fromInput.trim() : fromDef
+        const modelInput = parseModelInput(input.model)
+        if (!modelInput.ok) {
+          send(res, 400, { error: 'model 必须是 {provider, model}' })
+          return
+        }
+        const model = modelInput.value === undefined ? def?.model : modelInput.value ?? undefined
 
         const member: Member = {
           botId: newId('bot'),
@@ -846,7 +906,8 @@ export function createHandler(ctx: AgentContext) {
             : { instructions: pick(input.instructions, def?.instructions) }),
           ...(pick(input.agentPreset, def?.agentPreset) === undefined
             ? {}
-            : { agentPreset: pick(input.agentPreset, def?.agentPreset) })
+            : { agentPreset: pick(input.agentPreset, def?.agentPreset) }),
+          ...(model === undefined ? {} : { model })
         }
         target.members = [...(target.members ?? []), member]
         target.updatedAt = nowIso()
@@ -909,6 +970,13 @@ export function createHandler(ctx: AgentContext) {
           if (isNonEmptyString(input[key])) member[key] = input[key].trim()
           else if (input[key] === '') delete member[key]
         }
+        const modelInput = parseModelInput(input.model)
+        if (!modelInput.ok) {
+          send(res, 400, { error: 'model 必须是 {provider, model}' })
+          return
+        }
+        if (modelInput.value === null) delete member.model
+        else if (modelInput.value !== undefined) member.model = modelInput.value
 
         target.updatedAt = nowIso()
         saveDb(db)
@@ -1077,7 +1145,11 @@ export function createHandler(ctx: AgentContext) {
 
       // ---- /rooms/:id/plan（批准 / 部分批准 / 否决待确认计划）----
       if (parts.length === 3 && parts[2] === 'plan' && method === 'POST') {
-        const input = (await readJson(req)) as { action?: unknown; itemIds?: unknown }
+        const input = (await readJson(req)) as {
+          action?: unknown
+          itemIds?: unknown
+          dependencies?: unknown
+        }
         const action = String(input.action ?? '')
         const db = loadDb()
         const target = db.rooms.find((r) => r.id === roomId)
@@ -1152,6 +1224,66 @@ export function createHandler(ctx: AgentContext) {
           const chosen = new Set(
             selected.map((item) => item.id).filter((id): id is string => id !== undefined)
           )
+
+          // 依赖：默认沿用总管声明；批准时可以覆盖（UI 改依赖）
+          let dependencyOverride: Map<string, string[]> | undefined
+          if (input.dependencies !== undefined) {
+            if (
+              input.dependencies === null ||
+              typeof input.dependencies !== 'object' ||
+              Array.isArray(input.dependencies)
+            ) {
+              send(res, 400, { error: 'dependencies 必须是 {itemId: string[]} 对象' })
+              return
+            }
+            dependencyOverride = new Map()
+            for (const [itemId, rawDeps] of Object.entries(
+              input.dependencies as Record<string, unknown>
+            )) {
+              if (!chosen.has(itemId)) {
+                send(res, 400, { error: `依赖挂在未批准的任务上：${itemId}` })
+                return
+              }
+              if (!Array.isArray(rawDeps) || !rawDeps.every(isNonEmptyString)) {
+                send(res, 400, { error: `dependencies.${itemId} 必须是字符串数组` })
+                return
+              }
+              const deps = [...new Set(rawDeps.map((dep) => dep.trim()))]
+              if (deps.includes(itemId)) {
+                send(res, 400, { error: '任务不能依赖自己' })
+                return
+              }
+              const unknown = deps.filter((dep) => !chosen.has(dep))
+              if (unknown.length > 0) {
+                send(res, 400, { error: `依赖的任务没有批准：${unknown.join('、')}` })
+                return
+              }
+              dependencyOverride.set(itemId, deps)
+            }
+          }
+
+          const selectedWithDeps = selected.map((item) => ({
+            ...item,
+            dependsOn:
+              (item.id === undefined ? undefined : dependencyOverride?.get(item.id)) ??
+              item.dependsOn ??
+              []
+          }))
+          const dag = orderPlanItems(
+            selectedWithDeps.map((item) => ({
+              id: item.id,
+              dependsOn: item.dependsOn
+            }))
+          )
+          if (dag.cycle) {
+            send(res, 400, { error: '依赖成环，无法执行' })
+            return
+          }
+          if (dag.missing.length > 0) {
+            send(res, 400, { error: `依赖指向不存在的任务：${dag.missing.join('、')}` })
+            return
+          }
+
           markCards((payload) => {
             if (wanted === undefined) return 'running'
             const itemId = typeof payload.itemId === 'string' ? payload.itemId : undefined
@@ -1179,11 +1311,14 @@ export function createHandler(ctx: AgentContext) {
             roomId,
             plan.hostBotId,
             plan.hostName,
-            selected.map((item) => ({
+            selectedWithDeps.map((item) => ({
               botId: item.botId,
               name: item.name,
               task: item.task,
-              ...(item.id === undefined ? {} : { itemId: item.id })
+              ...(item.id === undefined ? {} : { itemId: item.id }),
+              ...(item.dependsOn === undefined || item.dependsOn.length === 0
+                ? {}
+                : { dependsOn: item.dependsOn })
             }))
           )
 

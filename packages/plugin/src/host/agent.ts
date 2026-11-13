@@ -13,6 +13,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { newId } from '@dshbot/core'
+import type { ModelRef } from '@dshbot/core'
 import { loadConfig } from './store.js'
 
 /** 单轮默认最长等待：5 分钟。改代码的任务比读文档慢得多。 */
@@ -115,6 +116,15 @@ export interface AgentContext {
       /** 活着就返回，不在就冷恢复；会话不存在则抛错。 */
       resolveAgent?(sessionId: string): Promise<{ agent?: AgentHandle } & Record<string, unknown>>
     }
+    /** 给已有会话装下一次请求的模型选择；老版本 DSH 可能没有。 */
+    selectModel?(request: {
+      sessionId: string
+      provider: string
+      model: string
+      reasoningEffort?: string
+    }): Promise<{ selected?: { provider: string; model: string } }>
+    /** 当前部署可路由的模型目录。 */
+    modelCatalog?(): Promise<unknown>
   }
   sessions?: { get(id: string): SessionLike | undefined }
 }
@@ -276,6 +286,7 @@ async function acquireAgent(
  * @param onAgent - 拿到句柄时回调一次，调用方可以借它注册"停止"
  * @param onEvent - 运行中的事件回调（目前只抛工具调用），用于实时状态
  * @param agentPreset - 新会话要挂的 agent preset（决定工具集）；续聊时忽略
+ * @param model - 该 Bot 指定使用的模型；不传跟随 DSH 默认
  */
 export async function runOnce(
   ctx: AgentContext,
@@ -285,13 +296,23 @@ export async function runOnce(
   sinceSeq = 0,
   onAgent?: (agent: AgentHandle) => void,
   onEvent?: (event: { kind: 'tool'; name: string }) => void,
-  agentPreset?: string
+  agentPreset?: string,
+  model?: ModelRef
 ): Promise<RunOutcome> {
   const started = Date.now()
   const acquired = await acquireAgent(ctx, existingSessionId, cwd, agentPreset)
   const agent = acquired.agent
   onAgent?.(agent)
   const sessionId = acquired.sessionId
+
+  // 每个 Bot 自己的模型：在投递消息前装到会话上，下一次请求生效
+  if (model !== undefined) {
+    const select = ctx.sessionController?.selectModel
+    if (typeof select !== 'function') {
+      throw new Error('当前 DSH 版本不支持按 Bot 选择模型（sessionController.selectModel 不存在）')
+    }
+    await select({ sessionId, provider: model.provider, model: model.model })
+  }
 
   // 句柄形状随宿主版本变，先探清楚再调用，免得报一句没用的 "not a function"
   const ownKeys = Object.keys(agent)

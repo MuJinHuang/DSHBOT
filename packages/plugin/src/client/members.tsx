@@ -16,6 +16,7 @@ import {
   exportBot,
   importBot,
   listBots,
+  listModels,
   listPresets,
   listTeams,
   removeMember,
@@ -25,7 +26,7 @@ import {
   updateBot,
   updateMember
 } from './api'
-import type { BotCard, PresetEntry, TeamTemplate } from './api'
+import type { BotCard, ModelCatalog, PresetEntry, TeamTemplate } from './api'
 
 const LINE = '1px solid rgba(128,128,128,0.25)'
 const MUTED = 'rgba(128,128,128,0.72)'
@@ -96,6 +97,12 @@ export function BotForm(props: {
   const [instructions, setInstructions] = useState(props.initial?.instructions ?? '')
   const [preset, setPreset] = useState(props.initial?.agentPreset ?? '')
   const [presets, setPresets] = useState<PresetEntry[]>([])
+  const [modelKey, setModelKey] = useState(
+    props.initial?.model == null
+      ? ''
+      : `${props.initial.model.provider}|${props.initial.model.model}`
+  )
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog>({ groups: [] })
   const [splitting, setSplitting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -105,6 +112,9 @@ export function BotForm(props: {
     void listPresets()
       .then(setPresets)
       .catch(() => setPresets([]))
+    void listModels()
+      .then(setModelCatalog)
+      .catch(() => setModelCatalog({ groups: [] }))
   }, [])
 
   // 把一大段话拆成三块，拆完还能手改
@@ -133,9 +143,23 @@ export function BotForm(props: {
       persona,
       expertise,
       instructions,
-      ...(preset === '' ? {} : { agentPreset: preset })
+      ...(preset === '' ? {} : { agentPreset: preset }),
+      model:
+        modelKey === ''
+          ? null
+          : {
+              provider: modelKey.slice(0, modelKey.indexOf('|')),
+              model: modelKey.slice(modelKey.indexOf('|') + 1)
+            }
     }),
-    [name, avatar, persona, expertise, instructions, preset]
+    [name, avatar, persona, expertise, instructions, preset, modelKey]
+  )
+
+  const modelOptions = modelCatalog.groups.flatMap((group) =>
+    group.models.map((entry) => ({
+      key: `${group.id}|${entry.id}`,
+      label: `${group.name} · ${entry.name}`
+    }))
   )
 
   const run = useCallback(
@@ -212,6 +236,19 @@ export function BotForm(props: {
             h('option', { value: 'worker' }, '执行'),
             h('option', { value: 'host' }, '总管')
           )
+    ),
+    h(
+      'select',
+      {
+        value: modelKey,
+        onChange: (e: { target: { value: string } }) => setModelKey(e.target.value),
+        style: { ...field, width: '100%' }
+      },
+      h('option', { value: '' }, '模型：跟随 DSH 默认'),
+      ...modelOptions.map((item) => h('option', { key: item.key, value: item.key }, item.label)),
+      modelKey !== '' && !modelOptions.some((item) => item.key === modelKey)
+        ? h('option', { value: modelKey }, modelKey.replace('|', ' · '))
+        : null
     ),
     h('textarea', {
       value: persona,
@@ -661,6 +698,10 @@ function MemberEditor(props: {
   const [instructions, setInstructions] = useState(member.instructions ?? '')
   const [preset, setPreset] = useState(member.agentPreset ?? '')
   const [presets, setPresets] = useState<PresetEntry[]>([])
+  const [modelKey, setModelKey] = useState(
+    member.model == null ? '' : `${member.model.provider}|${member.model.model}`
+  )
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog>({ groups: [] })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -668,7 +709,17 @@ function MemberEditor(props: {
     void listPresets()
       .then(setPresets)
       .catch(() => setPresets([]))
+    void listModels()
+      .then(setModelCatalog)
+      .catch(() => setModelCatalog({ groups: [] }))
   }, [])
+
+  const modelOptions = modelCatalog.groups.flatMap((group) =>
+    group.models.map((entry) => ({
+      key: `${group.id}|${entry.id}`,
+      label: `${group.name} · ${entry.name}`
+    }))
+  )
 
   const save = useCallback(async () => {
     if (name.trim() === '') {
@@ -685,7 +736,14 @@ function MemberEditor(props: {
         persona,
         expertise,
         instructions,
-        agentPreset: preset
+        agentPreset: preset,
+        model:
+          modelKey === ''
+            ? null
+            : {
+                provider: modelKey.slice(0, modelKey.indexOf('|')),
+                model: modelKey.slice(modelKey.indexOf('|') + 1)
+              }
       })
       props.onSaved(result.room)
     } catch (err) {
@@ -693,7 +751,7 @@ function MemberEditor(props: {
     } finally {
       setBusy(false)
     }
-  }, [name, avatar, role, persona, expertise, instructions, preset, member.botId, props])
+  }, [name, avatar, role, persona, expertise, instructions, preset, modelKey, member.botId, props])
 
   return h(
     'div',
@@ -748,6 +806,19 @@ function MemberEditor(props: {
         h('option', { value: '' }, '工具集：跟随默认'),
         ...presets.map((item) => h('option', { key: item.id, value: item.id }, item.label))
       )
+    ),
+    h(
+      'select',
+      {
+        value: modelKey,
+        onChange: (e: { target: { value: string } }) => setModelKey(e.target.value),
+        style: { ...field, width: '100%' }
+      },
+      h('option', { value: '' }, '模型：跟随 DSH 默认'),
+      ...modelOptions.map((item) => h('option', { key: item.key, value: item.key }, item.label)),
+      modelKey !== '' && !modelOptions.some((item) => item.key === modelKey)
+        ? h('option', { value: modelKey }, modelKey.replace('|', ' · '))
+        : null
     ),
     h('input', {
       value: expertise,
@@ -854,6 +925,13 @@ export function MemberCard(props: {
     member.expertise === undefined || member.expertise === ''
       ? null
       : h('div', { style: { fontSize: 10.5, color: '#2f9e44', marginBottom: 2 } }, member.expertise),
+    member.model === undefined
+      ? null
+      : h(
+          'div',
+          { style: { fontSize: 10, color: MUTED, marginBottom: 3 } },
+          `模型 ${member.model.provider}/${member.model.model}`
+        ),
     h(
       'div',
       { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: MUTED } },
