@@ -1,6 +1,6 @@
 # 项目状态快照
 
-> 更新于 2026-11-14。当前版本 **1.0.0**；完整包在 `DSHBOT(V1.0)/`（已 gitignore）。
+> 更新于 2026-11-14。当前版本 **1.0.0**；完整包目录已移除，插件产物用 `pnpm stage:release` 生成到 `dist/`（已 gitignore）。
 > **新会话先读 [HANDOFF.md](HANDOFF.md)**：已交付内容、Phase 0 发布、Phase 1 稳定性、Phase 2 记忆/技能。
 > 下一步发布闭环看 [PUBLISHING.md](PUBLISHING.md)；历史需求见 [DSHBot-需求规格-v1.1.md](docs/internal/requirements/DSHBot-需求规格-v1.1.md)，任务清单见 [TASKS.md](TASKS.md)。
 

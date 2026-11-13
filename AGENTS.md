@@ -10,13 +10,14 @@ DSH 插件：在 DSH 里开"房间"，拉多个有岗位设定的 Bot 协作完�
 
 ## 当前任务（v1.0.0 之后）
 
-> **v1.0.0 完整包已完成**：`DSHBOT(V1.0)/` + 总 ZIP + 介绍/说明文档（Markdown/PDF/DOCX）。
+> **v1.0.0 已完成**（源码快照 `16f04a6`）；完整包目录 `DSHBOT(V1.0)/` 已于 2026-11-14 移除。
+> 发布产物用 `pnpm stage:release` 生成到 `dist/`（已 gitignore）。
 > 当前没有 GitHub remote / tag / Pages；发布闭环是 Phase 0，需要用户提供仓库 URL。
 > **新会话第一份读 [HANDOFF.md](HANDOFF.md)**，里面有精确状态、下一步和不要做的事。
 
 ## 新会话先读这五份（按顺序，别全读）
 
-1. `HANDOFF.md` — 当前版本、已交付包、下一步 Phase 0/1/2
+1. `HANDOFF.md` — 当前版本、发布产物、下一步 Phase 0/1/2
 2. `STATE.md` — 现在能跑什么、进度、**无人值守协作约定**
 3. `docs/internal/roadmap/下一阶段任务.md` — N1/N2/N3 的历史候选与实测结论
 4. `TASKS.md` — 任务明细（**状态列以代码为准**）

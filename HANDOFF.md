@@ -3,9 +3,8 @@
 > 更新时间：2026-11-14
 > v1.0.0 包源码快照：`16f04a6`（当前 HEAD 以 `git rev-parse HEAD` 为准）
 > 当前版本：**1.0.0**
-> 完整包：`D:\Desktop\DSBOT\DSHBOT(V1.0)`
-> 总 ZIP：`DSHBOT(V1.0)\DSHBOT-V1.0-Windows.zip`
-> 总 ZIP SHA256：`a5ceaeaff4ca7cc3b679c43227a4eabd5831d5fbb8be04f2282f2f2ba8117d6a`
+> 发布产物：`dist/`（`pnpm stage:release` 生成，已 gitignore）
+> 完整包目录 `DSHBOT(V1.0)/` 已于 2026-11-14 移除，不再作为交付物
 
 ---
 
@@ -36,25 +35,23 @@
 - `pnpm test:coverage`：lines **76.5%**；
 - 真实模型 A→B DAG：`a.md=A`、`b.md=AB`、验收 2/2；
 - 发布包在全新 profile 安装后 `/health`、`/models` 正常；
-- 最终 ZIP 解压后 0 个坏哈希、0 个坏链接。
+- 历史完整包 ZIP 解压后 0 个坏哈希、0 个坏链接（该 ZIP 已随完整包目录删除）。
 
-### 1.3 发布包（已生成，未发布）
+### 1.3 发布产物（未发布）
+
+`DSHBOT(V1.0)/` 完整包目录是 gitignored 的交付物，**已于 2026-11-14 由用户删除**，
+不在版本库里，也不在后续恢复范围内。现在的发布形态以脚本与 CI 为准：
 
 ```text
-DSHBOT(V1.0)/
-├─ DSHBOT-介绍文档.md/.docx/.pdf
-├─ DSHBOT-说明文档.md/.docx/.pdf
-├─ README.md / README.en.md
-├─ install.ps1 / 安装.cmd
-├─ plugin/dshbot-plugin-1.0.0/ + zip/tgz + SHA256SUMS
-├─ source/                 完整源码/测试/文档站源
-├─ docs/ / docs-site/ / spike/
-├─ STATE.md / TASKS.md / PUBLISHING.md
-├─ SHA256SUMS.txt / BUILD-INFO.txt / VERSION
-└─ DSHBOT-V1.0-Windows.zip + .sha256
+dist/                          # pnpm stage:release 生成，已 gitignore
+├─ dshbot-plugin-1.0.0/        # 可直接拷进 profile 的目录
+├─ dshbot-plugin-1.0.0.zip
+├─ dshbot-plugin-1.0.0.tgz
+└─ SHA256SUMS.txt
 ```
 
-`DSHBOT(V1.0)/` 已加入 `.gitignore`，是**交付物，不提交进 git**。
+tag `v*` 时 `.github/workflows/release.yml` 会重新生成同样的产物并建 GitHub Release。
+之前那份总 ZIP 的 SHA256 已无法在本机复核；需要完整包时重新构建，不要引用旧哈希。
 
 ---
 
@@ -152,7 +149,7 @@ dsh --profile dshbot-dev --port 54873 --no-open
 ## 7. 不要做
 
 - 不要重启当前 DSH 进程（会话会死）；
-- 不要把 `DSHBOT(V1.0)/` 提交进 git；
+- 不要把 `dist/` 等发布产物提交进 git（已 gitignore）；
 - 不要用 `git reset --hard` 回滚用户工作区；
 - 不要在未确认模型可用时假设 `selectModel` 成功；
 - 不要把 UI 冒烟说成 CI 已覆盖——它目前需要本机 DSH + Edge/Chrome；
