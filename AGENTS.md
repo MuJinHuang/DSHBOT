@@ -27,7 +27,7 @@ DSH 插件：在 DSH 里开"房间"，拉多个有岗位设定的 Bot 协作完�
   ```
 - **每完成一项就提交**，用小步 conventional commit（`feat:` / `fix:` / `docs:`）。
 - **文档与代码同步提交**。文档过期时，房间里的 Bot 会把过期状态当真汇报——文档就是事实来源。
-- 提交前必须 `pnpm check` 全绿（类型 + 构建 + 128 个测试）。
+- 提交前必须 `pnpm check` 全绿（类型 + 构建 + 143 个测试）。
 - 安装：`node scripts/install.mjs`（幂等，同步 profile 的 bundle 层并清理旧补丁段）。装完要**用户**重启才生效。
 - Windows 上写 `.ps1` 必须带 UTF-8 BOM，否则 Windows PowerShell 按 ANSI 解码，中文全乱。
 
@@ -38,6 +38,8 @@ DSH 插件：在 DSH 里开"房间"，拉多个有岗位设定的 Bot 协作完�
 - **快照用独立 bare 仓库**（`rooms/<id>/snapshots.git` + `--git-dir/--work-tree`）。绝不往用户项目 git 里提交，回滚也不能 `reset --hard` 掉别人的工作。
 - **验收谓词优先**：`file:路径` / `cmd:命令` 由机器判（0 token），其余才交给模型。模型判的是"文字里有没有提到"，不是"事情做成了"。
 - **计划要人工确认**（`mode=confirm`）。批准动作必须写一条系统消息，否则执行者读到的还是"计划已生成"。
+- **计划依赖**：总管用 `[依赖:@名字]` 声明，`orderPlanItems` 分层；上游失败，下游标 `blocked` 不执行。
+- **每 Bot 模型**：`member.model` 在 `followup` 前调 `sessionController.selectModel`；老 DSH 没这个方法就明确报错，别静默用默认模型。
 - **预算熔断**在 `runMember` 开跑前检查房间与个人额度，到线直接拒绝。
 
 ## 已经踩过的坑（别再踩）
@@ -47,15 +49,17 @@ DSH 插件：在 DSH 里开"房间"，拉多个有岗位设定的 Bot 协作完�
 3. 计划没批准就点验收 → 判定器会拿总管的派活说明当成品。已加 409 门禁。
 4. 单轮 60 秒硬超时 → 改代码任务被腰斩，表现成"模型没有返回文字"。现默认 5 分钟可配。
 5. 建房自动塞无角色卡的"小柯" → 会撞名、会抢主笔。现在**新房统一为空**，首次使用走示例房间/空状态引导；老房间迁移仍保留默认成员。
-6. 并行派活没有依赖顺序 → 复核者先于写手跑，只能报"文件缺失"。靠提示词约束，尚未做 DAG。
+6. 并行派活没有依赖顺序 → 已做 DAG：总管用 `[依赖:@名字]` 标注，`runPlan` 按层执行，上游结论注入下游；环/缺失依赖拒绝批准。
 7. `@dshbot/core` 主入口曾依赖 `node:crypto` → 客户端打包炸。已改用 Web Crypto，别再引入 Node 内置模块。
 
 ## 常用命令
 
 ```powershell
-pnpm check            # 类型 + 构建 + 测试
+pnpm check            # lint + 类型 + 构建 + 测试
 pnpm build            # 只构建
 node scripts/install.mjs           # 装进 desktop profile
+pnpm smoke:ui                      # 真实 DSH + 无头浏览器冒烟
+pnpm docs:build                    # 构建文档站
 node spike/session-cost.cjs        # 量本次/全部会话花了多少 token 与钱
 node spike/desktop-test.mjs 59565  # 端到端演练（建房→派活→验收）
 ```

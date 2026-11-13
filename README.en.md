@@ -48,7 +48,9 @@ pnpm install:profile
 | First run | One-click demo room with three roles and machine-checkable acceptance |
 | Multi-bot work | Host plans, `@name` dispatch, task cards, handoff summaries |
 | Plan gate | confirm / auto modes; partial approval; skipped cards |
-| Bot library | Persona, expertise, output rules, agent preset; JSON export/import |
+| Plan DAG | Host marks `[depends:@name]`; layered execution; upstream conclusions injected into downstream tasks; cycles rejected |
+| Per-bot model | Choose in the library or room; applied to the session before running and kept across turns |
+| Bot library | Persona, expertise, output rules, agent preset, model; JSON export/import |
 | Team templates | Save a group of bots; one-click when creating a room |
 | Member ops | Edit or remove a bot inside a room without recreating it |
 | Delivery | Changed files, diff, version snapshots, rollback, Markdown/audit export |
@@ -72,10 +74,12 @@ Data lives in `%USERPROFILE%\.dsh\dshbot\` (`rooms.json` + `rooms/<id>/messages.
 ## Development
 
 ```powershell
-pnpm check
-pnpm test:coverage
-pnpm drill                    # full flow with a fake host, 0 tokens
-pnpm drill -- --port 54873    # against a live DSH instance (costs tokens)
+pnpm check                     # lint + types + build + 143 tests
+pnpm test:coverage             # coverage gates
+pnpm drill                     # full flow with a fake host, 0 tokens
+pnpm drill -- --port 54873     # against a live DSH instance (costs tokens)
+pnpm smoke:ui                  # real DSH + headless browser smoke
+pnpm docs:build                # build the docs site into site/
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the design notes in [STATE.md](STATE.md) / [M1-技术方案.md](M1-技术方案.md).

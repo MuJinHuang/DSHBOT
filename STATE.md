@@ -62,7 +62,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 - **复用**：房间「另存为」复制目标/验收/成员（不带消息）；
 - **护栏**：预算熔断、运行超时可配、启动自愈、停止按钮、验收全是文字时给 warning。
 
-规模：66 次提交、25 个源文件 / 8460 行、128 个单测、`pnpm check` 一键校验。
+规模：70 次提交、26 个源文件 / 9001 行、143 个单测、`pnpm check` 一键校验。
 
 **还不能**：房间内审批卡、真写锁、逐条工具事件推流（受 DSH 接口限制，见 [下一阶段任务.md](下一阶段任务.md) 第五节）。
 
@@ -74,7 +74,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | M1 多 Bot | ✅（M1-5 软写锁；硬锁受限于 DSH） |
 | M2 插手与接管 | ✅（审批卡受限于 DSH） |
 | M3 交付 | ✅ |
-| 工程化 | ✅ 128 测试 · CI · 自愈 · 熔断 · 审计 · drill |
+| 工程化 | ✅ 143 测试 · CI · 自愈 · 熔断 · 审计 · drill |
 | 下一阶段 N1 | ✅ 五组全部完成（A 运维 / B 产物 / C 复用 / D 规模 / E 护栏），见 [TASKS.md](TASKS.md) |
 | S0–M3 明细 | 见 [TASKS.md](TASKS.md)——状态列以代码为准，改完代码立刻回去改那里 |
 
@@ -234,7 +234,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | README | ✅ | 中文重写 + 英文版；4 张脱敏截图；安装/限制/隐私/开发完整 |
 | 社区文件 | ✅ | SECURITY / CONTRIBUTING / CODE_OF_CONDUCT / issue+PR 模板 / CHANGELOG |
 | 真问题修复 | ✅ | 预算与模式可在界面改；上下文预算保任务；空闲 SSE 不再反复拉消息 |
-| 测试 | ✅ | 128 个用例（新增发布形态检查） |
+| 测试 | ✅ | 143 个用例（新增发布形态检查） |
 
 ### 第十六批（P1 体验与工程）
 
@@ -247,24 +247,35 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | 备份 / 恢复 | ✅ | `GET /backup`、`POST /backup/restore`；确认 + 覆盖前自动备份到 `backups/` |
 | 建房默认空房间 | ✅ | 不再自动塞「小柯」；成员只能显式拉入；空房间有引导 |
 
+### 第十七批（N2 依赖 / 模型 / 冒烟 / 文档站）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 计划 DAG | ✅ | `[依赖:@名字]` → `PlanItem.dependsOn`；`orderPlanItems` 分层；上游结论注入；环/缺失依赖 400；计划卡可改依赖 |
+| 每 Bot 模型 | ✅ | `ModelRef` 进 Bot/成员；`GET /models`；开跑前 `sessionController.selectModel`；导出/导入保留 |
+| 真实 UI 冒烟 | ✅ | `pnpm smoke:ui`：隔离 DSH + 无头浏览器，空状态/示例/搜索/Bot 库，截图 `spike/ui-smoke.png` |
+| 文档站 | ✅ | `docs-site/` + `scripts/build-docs.mjs` → `site/`；GitHub Pages workflow |
+
 ## 3. 代码地图
 
 ```
 packages/
-  core/            零 DSH 依赖：领域类型 + parse/blocks/markdown/search/backup 纯函数
+  core/            零 DSH 依赖：领域类型 + parse/blocks/markdown/search/backup/dag 纯函数
   plugin/
     src/index.ts        Host 插件入口：注入 webServer/agents/sessions，挂路由
-    src/host/api.ts     路由：health / presets / bots / rooms / files / audit / backup
+    src/host/api.ts     路由：health / presets / models / bots / rooms / files / audit / backup
     src/host/store.ts   房间/Bot/团队存储；消息按房间写 `messages.jsonl`（含旧数据迁移）
     src/host/files.ts   工作区文件列表与文本预览（挡二进制/超大/越界）
-    src/host/agent.ts   进程内跑 agent 回合（sessionController.agents.createSession）
+    src/host/agent.ts   进程内跑 agent 回合（createSession + selectModel）
     src/client/index.ts 注册 main 面板 + 侧栏入口
     src/client/page.tsx 房间页（三栏）
     src/client/api.ts   浏览器侧 fetch（文档相对路径）
   cli/             dsh-bot 骨架命令
 scripts/install.mjs  构建 → 类型检查 → link: 进 profile → 同步 bundle 层 / 清理旧补丁
-tests/           128 个用例：纯函数 + 真 HTTP 处理器 + drill + 发布形态
-spike/           冒烟与取证工具（CDP 截图、M0-1 检查、结论文档、drill.mjs）
+scripts/build-docs.mjs  docs-site → site（静态站，无框架）
+tests/           143 个用例：纯函数 + 真 HTTP 处理器 + DAG/模型 + drill + 发布形态
+spike/           冒烟与取证工具（CDP 截图、drill.mjs、ui-smoke.mjs）
+docs-site/       文档站 Markdown 源 + 样式
 ```
 
 ## 4. 环境事实
@@ -327,7 +338,7 @@ dsh --profile dshbot-dev --port 54873 --no-open                               # 
 
 ## 8. 下一步
 
-N1 已收口（A–E 全部完成，128 个用例，真实 drill 跑通）。接下来按真实需求选，不提前造：
+N1 已收口（A–E 全部完成，143 个用例，真实 drill 跑通）。接下来按真实需求选，不提前造：
 
 1. **M4 技能/例行**：把一次执行存成技能、或按时间触发房间——等真有重复任务再做；
 2. **M5 浏览器画面**：要 Bot 操作网页时再做；

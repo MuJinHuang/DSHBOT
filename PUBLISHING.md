@@ -5,7 +5,7 @@
 ## 0. 发布前检查
 
 ```powershell
-pnpm check            # 128 个用例必须全绿
+pnpm check            # 143 个用例必须全绿
 pnpm drill            # 假宿主全链路
 pnpm build
 ```
@@ -78,15 +78,29 @@ Remove-Item ./LICENSE
 
 发布前确认 `private` 已移除、`files` 含 `lib` / `cordis.patch.yml` / `locale` / `icon.svg`。
 
-## 5. 发布后
+## 5. 文档站
+
+文档源在 `docs-site/`，构建产物在 `site/`（已 gitignore）：
+
+```powershell
+pnpm docs:build
+```
+
+GitHub 仓库 **Settings → Pages → Build and deployment → Source: GitHub Actions**。
+之后 push 到 `main` 会触发 `.github/workflows/pages.yml`，发布到
+`https://<owner>.github.io/<repo>/`。
+
+页面导航在 `scripts/build-docs.mjs` 的 `pages` 数组里维护；新增 Markdown 后加一行。
+
+## 6. 发布后
 
 - 在 README 顶部加 CI / Release badge；
 - 把 `docs/assets/` 截图同步到 Release 说明或社交预览；
 - 新功能按 [CONTRIBUTING.md](CONTRIBUTING.md) 的约定走 PR；
-- 下一阶段（N2）候选：DAG、每 Bot 模型、文档站、UI 自动化。
+- 下一阶段（N3）候选：Bot 记忆、技能、更细的权限/审批。
 
 ## 已知待补
 
 - 英文文档目前只有 README；内部设计文档仍是中文；
-- 没有真实 UI 自动化测试，页面回归靠截图 + 手工；
-- DAG 依赖、UI 自动化等还没做（见 [下一阶段任务.md](下一阶段任务.md)）。
+- UI 冒烟依赖本机 DSH + Edge/Chrome，没有放进 CI；
+- 多依赖的图形化编辑还没做（计划卡目前是单依赖下拉，多依赖沿用总管声明）。

@@ -51,7 +51,9 @@ pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 | 首次使用 | 一键示例房间：三个角色 + 机器可判验收，装上就能跑 |
 | 多 Bot 协作 | 总管拆活、按 `@名字` 派活、任务卡生命周期、handoff 结论摘要 |
 | 计划确认 | confirm / auto 两种模式；**部分批准**，未选中的任务卡标 `skipped` |
-| Bot 库 | 岗位、专长、输出规范、工具集（agent preset）；导出 / 导入 JSON |
+| 计划依赖（DAG） | 总管用 `[依赖:@名字]` 标注；按层执行，上游结论自动注入下游；环/缺失依赖拒绝 |
+| 每 Bot 模型 | Bot 库和房间内可选；开跑前装到会话，续聊保持 |
+| Bot 库 | 岗位、专长、输出规范、工具集（agent preset）、模型；导出 / 导入 JSON |
 | 团队模板 | 常一起干活的几只 Bot 存成团队，建房一键拉入 |
 | 成员运维 | 房间内直接改名字/岗位/专长/工具集，或移出，不用重建房间 |
 | 交付 | 变更文件、diff、版本快照与回滚、导出 Markdown / 审计 JSONL |
@@ -104,14 +106,16 @@ pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 
 ```powershell
 pnpm install
-pnpm check        # lint + 类型 + 构建 + 全部测试
+pnpm check        # lint + 类型 + 构建 + 143 个测试
 pnpm test:coverage # 覆盖率门槛
 pnpm drill        # 一条命令演完：建房→派活→产出→验收（默认假宿主，0 token）
 pnpm drill -- --port 54873   # 打真实实例（会花 token）
+pnpm smoke:ui     # 真实 DSH + 无头浏览器冒烟（需要本机 DSH）
+pnpm docs:build   # 构建文档站到 site/
 ```
 
 架构与决策：[STATE.md](STATE.md)、[TASKS.md](TASKS.md)、[M1-技术方案.md](M1-技术方案.md)；
-贡献前请读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+贡献前请读 [CONTRIBUTING.md](CONTRIBUTING.md)。文档站源码在 [docs-site](docs-site)，`pnpm docs:build` 生成 `site/`。
 
 ## License
 
