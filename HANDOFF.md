@@ -1,7 +1,7 @@
 # 新会话交接：DSHBot v1.0.0 → 下一阶段
 
 > 更新时间：2026-11-14
-> 当前 commit：`16f04a6`（工作区 clean）
+> v1.0.0 包源码快照：`16f04a6`（当前 HEAD 以 `git rev-parse HEAD` 为准）
 > 当前版本：**1.0.0**
 > 完整包：`D:\Desktop\DSBOT\DSHBOT(V1.0)`
 > 总 ZIP：`DSHBOT(V1.0)\DSHBOT-V1.0-Windows.zip`
