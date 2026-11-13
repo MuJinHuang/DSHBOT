@@ -1,6 +1,6 @@
 {
   "name": "@dshbot/plugin",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "DSHBot 的 DSH 插件：房间页面 + 多 Bot 编排",
   "license": "MIT",

@@ -19,19 +19,19 @@ DSHBot 是一个 **DSH 插件包**。安装 = 把包装进某个 profile + 让 D
 
 ## 方式 A：安装 Release 压缩包（推荐）
 
-1. 从仓库 **Releases** 下载 `dshbot-plugin-v0.2.0.zip`（或 `.tgz`）。
+1. 从仓库 **Releases** 下载 `dshbot-plugin-1.0.0.zip`（或 `.tgz`）。
 2. 解压到一个固定目录，例如：
 
    ```powershell
-   Expand-Archive .\dshbot-plugin-v0.2.0.zip -DestinationPath "$env:USERPROFILE\dshbot"
+   Expand-Archive .\dshbot-plugin-1.0.0.zip -DestinationPath "$env:USERPROFILE\dshbot"
    ```
 
-   解压后应是 `%USERPROFILE%\dshbot\dshbot-plugin-0.2.0\`，里面有 `package.json`、`lib\`、`cordis.patch.yml`。
+   解压后应是 `%USERPROFILE%\dshbot\dshbot-plugin-1.0.0\`，里面有 `package.json`、`lib\`、`cordis.patch.yml`。
 
 3. 装进 profile：
 
    ```powershell
-   dsh plugin --profile desktop add "link:$env:USERPROFILE\dshbot\dshbot-plugin-0.2.0"
+   dsh plugin --profile desktop add "link:$env:USERPROFILE\dshbot\dshbot-plugin-1.0.0"
    ```
 
 4. **完全重启 DSH**（不是刷新页面）。
@@ -47,7 +47,7 @@ DSHBot 是一个 **DSH 插件包**。安装 = 把包装进某个 profile + 让 D
 也可以直接用 Release 里的 tarball（不需要解压）：
 
 ```powershell
-dsh plugin --profile desktop add "file:C:\path\to\dshbot-plugin-0.2.0.tgz"
+dsh plugin --profile desktop add "file:C:\path\to\dshbot-plugin-1.0.0.tgz"
 ```
 
 `file:` 会把包拷进 profile，升级时重新执行这条命令即可。

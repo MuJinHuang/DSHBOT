@@ -17,11 +17,11 @@ DSHBot 是一个 DSH 插件。安装 = 把包装进某个 profile + 让 DSH 的 
 
 ## 从 Release 安装（推荐）
 
-1. 从仓库 Releases 下载 `dshbot-plugin-v0.2.0.zip`，解压到一个固定目录；
+1. 从仓库 Releases 下载 `dshbot-plugin-1.0.0.zip`，解压到一个固定目录；
 2. 装进 profile：
 
 ```powershell
-dsh plugin --profile desktop add "link:%USERPROFILE%\dshbot\dshbot-plugin-0.2.0"
+dsh plugin --profile desktop add "link:%USERPROFILE%\dshbot\dshbot-plugin-1.0.0"
 ```
 
 3. **完全重启 DSH**（不是刷新页面）。
@@ -29,7 +29,7 @@ dsh plugin --profile desktop add "link:%USERPROFILE%\dshbot\dshbot-plugin-0.2.0"
 也可以用 tarball，不需要解压：
 
 ```powershell
-dsh plugin --profile desktop add "file:C:\path\to\dshbot-plugin-0.2.0.tgz"
+dsh plugin --profile desktop add "file:C:\path\to\dshbot-plugin-1.0.0.tgz"
 ```
 
 ## 验证

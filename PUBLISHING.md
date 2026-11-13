@@ -52,15 +52,15 @@ pnpm check
 pnpm docs:build
 pnpm stage:release
 
-git tag v0.2.0
-git push origin v0.2.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 `.github/workflows/release.yml` 会：
 
 1. `pnpm install --frozen-lockfile` + `pnpm check` + `pnpm docs:build`；
 2. 校验 tag 与 `packages/plugin/package.json` 的 version 一致；
-3. 用 `pnpm stage:release` 产出 `dshbot-plugin-0.2.0.zip`、`dshbot-plugin-0.2.0.tgz`、`SHA256SUMS.txt`（跨平台，不依赖系统 zip）；
+3. 用 `pnpm stage:release` 产出 `dshbot-plugin-1.0.0.zip`、`dshbot-plugin-1.0.0.tgz`、`SHA256SUMS.txt`（跨平台，不依赖系统 zip）；
 4. 用 `gh release create` 建 Release，正文取 `CHANGELOG.md`。
 
 发布后下载 zip，按 [INSTALL.md](INSTALL.md) 在干净 profile 里装一遍，确认：
@@ -108,5 +108,5 @@ GitHub 仓库 **Settings → Pages → Build and deployment → Source: GitHub A
 
 - 英文文档目前只有 README；内部设计文档仍是中文；
 - UI 冒烟依赖本机 DSH + Edge/Chrome，没有放进 CI；
-- 还没有 GitHub remote、`v0.2.0` tag 和线上 Pages；建仓后补 README CI badge；
+- 还没有 GitHub remote、`v1.0.0` tag 和线上 Pages；建仓后补 README CI badge；
 - 发布包已在本地新 profile 验证（`/health`、`/models`），但还没在第二台干净机器上装过。

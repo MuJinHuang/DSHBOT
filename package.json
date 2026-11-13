@@ -1,6 +1,6 @@
 {
   "name": "dshbot",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "A DSH plugin that runs a room of role-based bots: plan, split work, deliver files.",

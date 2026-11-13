@@ -8,7 +8,7 @@
 
 你只需要做三件事：定目标、批计划、验产物。其余交给房间。
 
-> English: [README.en.md](README.en.md) · 当前版本 **v0.2.0** · 144 个用例 · 运行时**零第三方依赖**
+> English: [README.en.md](README.en.md) · 当前版本 **v1.0.0** · 144 个用例 · 运行时**零第三方依赖**
 
 ![DSHBot 演示：空房 → 示例房间 → 搜索 → Bot 库](docs/assets/demo.gif)
 
@@ -25,7 +25,7 @@
 
 ### 方式 A：下载 Release（不需要 Node / pnpm）
 
-1. 从 [Releases](../../releases) 下载 `dshbot-plugin-v0.2.0.zip`，解压到一个固定目录，例如 `%USERPROFILE%\dshbot-plugin`；
+1. 从 [Releases](../../releases) 下载 `dshbot-plugin-1.0.0.zip`，解压到一个固定目录，例如 `%USERPROFILE%\dshbot-plugin`；
 2. 用 DSH 自带的 CLI 装进你的 profile：
 
    ```powershell

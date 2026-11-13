@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)，日期为本地发布日。
 
+## 1.0.0 — 2026-11-14
+
+DSHBot V1.0 可发布包：
+
+- 版本号统一为 1.0.0（root / core / plugin / cli）
+- 完整开发包：插件产物 + 源码 + 测试 + 文档站源 + 一键 PowerShell 安装脚本
+- 中文介绍文档 / 说明文档（Markdown + PDF + DOCX），附英文 README
+- 计划 DAG 多依赖点选、失败任务单件重跑；模型目录校验 + 推理强度
+- 真实模型 A→B DAG 验收通过；发布包在全新 profile 安装验证
+- 总 ZIP、插件 zip/tgz、SHA256 校验齐全
+
 ## 0.2.0 — 2026-11-12
 
 N1「能修、能看、能复用」：

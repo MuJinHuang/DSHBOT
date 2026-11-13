@@ -1,6 +1,6 @@
 {
   "name": "@dshbot/core",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "DSHBot 的编排内核：与 DSH 无关的领域模型与状态机",

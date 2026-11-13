@@ -8,6 +8,7 @@
       "tests/**/*.mjs",
       "spike/**/*.mjs",
       "scripts/**/*.mjs",
+      "!DSHBOT(V1.0)",
       "!**/node_modules",
       "!**/dist",
       "!**/lib"

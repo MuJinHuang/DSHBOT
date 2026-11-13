@@ -23,7 +23,7 @@ DSHBot is a DSH plugin that turns a multi-agent chat into a checkable workflow:
 Prerequisites: DSH 0.2.1-rc.5 on Windows, a profile.
 
 ```powershell
-dsh plugin --profile desktop add "link:C:\path\to\dshbot-plugin-0.2.0"
+dsh plugin --profile desktop add "link:C:\path\to\dshbot-plugin-1.0.0"
 # fully restart DSH
 ```
 

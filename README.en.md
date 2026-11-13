@@ -8,7 +8,7 @@
 
 You set the goal, approve the plan, and review the deliverables.
 
-> Chinese: [README.md](README.md) · Version **0.2.0** · 144 tests · **No third-party runtime dependencies**
+> Chinese: [README.md](README.md) · Version **1.0.0** · 144 tests · **No third-party runtime dependencies**
 
 ![DSHBot demo: empty room → demo room → search → bot library](docs/assets/demo.gif)
 
@@ -23,7 +23,7 @@ You set the goal, approve the plan, and review the deliverables.
 
 ### A. Install from a release (no Node/pnpm required)
 
-1. Download `dshbot-plugin-v0.2.0.zip` from [Releases](../../releases) and unzip it, e.g. to `%USERPROFILE%\dshbot-plugin`.
+1. Download `dshbot-plugin-1.0.0.zip` from [Releases](../../releases) and unzip it, e.g. to `%USERPROFILE%\dshbot-plugin`.
 2. Install it with DSH's bundled CLI:
 
    ```powershell
