@@ -62,7 +62,7 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 - **复用**：房间「另存为」复制目标/验收/成员（不带消息）；
 - **护栏**：预算熔断、运行超时可配、启动自愈、停止按钮、验收全是文字时给 warning。
 
-规模：59 次提交、23 个源文件 / 7748 行、126 个单测、`pnpm check` 一键校验。
+规模：64 次提交、25 个源文件 / 8463 行、126 个单测、`pnpm check` 一键校验。
 
 **还不能**：房间内审批卡、真写锁、逐条工具事件推流（受 DSH 接口限制，见 [下一阶段任务.md](下一阶段任务.md) 第五节）。
 
@@ -236,14 +236,24 @@ DSH 侧栏「🏠 房间」进去分两栏：**房间 / Bot 库**。
 | 真问题修复 | ✅ | 预算与模式可在界面改；上下文预算保任务；空闲 SSE 不再反复拉消息 |
 | 测试 | ✅ | 126 个用例（新增发布形态检查） |
 
+### 第十六批（P1 体验与工程）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| lint | ✅ | Biome 进 `pnpm check`；CI 双平台 |
+| 覆盖率门槛 | ✅ | `pnpm test:coverage`：lines ≥65 / branches ≥60 / functions ≥65（当前 75%） |
+| 首次使用引导 | ✅ | `POST /rooms/demo`；空状态「创建示例房间」 |
+| 消息搜索 | ✅ | `GET /rooms/:id/search?q=` + 界面搜索框（全量历史） |
+| 备份 / 恢复 | ✅ | `GET /backup`、`POST /backup/restore`；确认 + 覆盖前自动备份到 `backups/` |
+
 ## 3. 代码地图
 
 ```
 packages/
-  core/            零 DSH 依赖：Room/Bot/Seat/Message/Assignment/Artifact 类型 + id 工具
+  core/            零 DSH 依赖：领域类型 + parse/blocks/markdown/search/backup 纯函数
   plugin/
     src/index.ts        Host 插件入口：注入 webServer/agents/sessions，挂路由
-    src/host/api.ts     路由：health / presets / bots / rooms / files / audit
+    src/host/api.ts     路由：health / presets / bots / rooms / files / audit / backup
     src/host/store.ts   房间/Bot/团队存储；消息按房间写 `messages.jsonl`（含旧数据迁移）
     src/host/files.ts   工作区文件列表与文本预览（挡二进制/超大/越界）
     src/host/agent.ts   进程内跑 agent 回合（sessionController.agents.createSession）

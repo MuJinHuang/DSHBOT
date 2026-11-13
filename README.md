@@ -37,7 +37,7 @@
 
 ```powershell
 pnpm install
-pnpm check                # 类型检查 + 构建 + 100+ 个用例
+pnpm check                # lint + 类型检查 + 构建 + 100+ 个用例
 pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 # 重启 DSH
 ```
@@ -71,6 +71,10 @@ pnpm install:profile      # 构建、装进 desktop profile、迁移旧补丁
 | Bot 库与团队模板 |
 |---|
 | ![Bot 库](docs/assets/library.png) |
+
+| 示例房间与消息搜索 |
+|---|
+| ![示例房间与消息搜索](docs/assets/p1-search.png) |
 
 ## 安装与兼容
 
