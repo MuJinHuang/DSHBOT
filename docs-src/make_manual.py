@@ -1273,9 +1273,9 @@ table(
     widths=[3.4, 3.6, 8.6],
 )
 
-doc.save(r"D:\Desktop\DSBOT\DSHBot知识手册.docx")
+doc.save(r"D:\Desktop\DSBOT\docs\internal\archive\DSHBot知识手册.docx")
 
-check = Document(r"D:\Desktop\DSBOT\DSHBot知识手册.docx")
+check = Document(r"D:\Desktop\DSBOT\docs\internal\archive\DSHBot知识手册.docx")
 print("段落数:", len(check.paragraphs))
 print("表格数:", len(check.tables))
 print("一级标题:", [p.text for p in check.paragraphs if p.style.name == "Heading 1"])

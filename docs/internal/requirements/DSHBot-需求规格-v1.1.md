@@ -153,7 +153,7 @@ status: idle             # 见 5.3
 |---|---|
 | 工作文件 | **共享区**（房间级，一份仓库）+ **私有区**（`seats/<bot>/`，草稿与临时文件） |
 | 写共享区 | 需拿**写锁**，同一文件同时只有一个 Bot 能写 |
-| 进程 | **每个 Run 一个独立 session**（进程内 activation，共享宿主进程）。子进程方案已否决，见 [spike/x1-findings.md](spike/x1-findings.md) |
+| 进程 | **每个 Run 一个独立 session**（进程内 activation，共享宿主进程）。子进程方案已否决，见 [spike/x1-findings.md](../../../spike/x1-findings.md) |
 | 浏览器 | 独立 `user-data-dir`，cookie/登录态互不串 |
 | 凭证 | 按 Bot 授权，**不进上下文**，由工具代理注入 |
 | 配额 | 并发数、CPU/内存、token 预算 |
@@ -377,7 +377,7 @@ status: idle             # 见 5.3
 | # | 问题 | 影响 |
 |---|---|---|
 | T1 | `dsh headless` 子进程 10 并发可行性 | 决定 Run 用子进程还是 in-process session |
-| ~~T2~~ | ~~client plugin 能否注册独立页面/路由与自定义面板~~ → **已验证通过**，见 [T2-验证报告.md](T2-验证报告.md) | 房间 UI 定为 `main` slot 全屏页 |
+| ~~T2~~ | ~~client plugin 能否注册独立页面/路由与自定义面板~~ → **已验证通过**，见 [T2-验证报告.md](../reports/T2-验证报告.md) | 房间 UI 定为 `main` slot 全屏页 |
 | T4 | 浏览器方案：Playwright MCP vs 自建 tool | 决定"电脑"完整度 |
 | T5 | 能否按 Bot 裁剪 session 上下文（投影 API） | 决定群聊上下文策略能否落地 |
 
@@ -410,7 +410,7 @@ status: idle             # 见 5.3
 | R4 | 审批疲劳（什么都问） | 默认只拦四类危险动作，其余放行 |
 | R5 | 浏览器截图流太贵 | 默认关闭，按需开启，降帧率 |
 | R6 | 插件里跑多个子进程拖垮 GUI | 并发上限 + 超限排队 |
-| ~~R7~~ | ~~房间 UI 在 DSH 里做不出来~~ | **已排除**：T2 证实插件可注册 `main` 全屏页 + `sidebar.panellist` 入口，详见 [T2-验证报告.md](T2-验证报告.md) |
+| ~~R7~~ | ~~房间 UI 在 DSH 里做不出来~~ | **已排除**：T2 证实插件可注册 `main` 全屏页 + `sidebar.panellist` 入口，详见 [T2-验证报告.md](../reports/T2-验证报告.md) |
 
 ---
 

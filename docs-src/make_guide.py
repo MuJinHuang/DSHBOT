@@ -949,10 +949,10 @@ table(
     font_size=8.5,
 )
 
-doc.save(r"D:\Desktop\DSBOT\DSHBot新手指南.docx")
+doc.save(r"D:\Desktop\DSBOT\docs\internal\archive\DSHBot新手指南.docx")
 
 # 自检：重新打开确认内容在
-check = Document(r"D:\Desktop\DSBOT\DSHBot新手指南.docx")
+check = Document(r"D:\Desktop\DSBOT\docs\internal\archive\DSHBot新手指南.docx")
 print("段落数:", len(check.paragraphs))
 print("表格数:", len(check.tables))
 print("标题:", [p.text for p in check.paragraphs if p.style.name.startswith("Heading 1")][:12])
